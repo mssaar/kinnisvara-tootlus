@@ -1,0 +1,58 @@
+import json
+
+from tootlus import pipeline, scraper
+from tootlus.parser import Listing
+from tootlus.store import Store
+
+
+def listings(location, price, n, start):
+    return [Listing(start + i, f"u{start + i}", f"Tn, {location}", location, 2, 50.0, price, 1, 2000, None) for i in range(n)]
+
+
+def test_run_once_saves_and_writes_results(tmp_path):
+    def scrape(deal, county_id, on_page=None):
+        if on_page:
+            on_page(1, 5)
+        if deal == 1:
+            return listings("Kesklinn, Tallinn", 100000, 5, 0)
+        return listings("Kesklinn, Tallinn", 500, 5, 100)
+
+    out = tmp_path / "results.json"
+    messages = []
+    s = Store(":memory:")
+    res = pipeline.run_once(s, counties={1: "Harjumaa"}, scrape=scrape, progress=messages.append, results_path=out)
+    assert json.loads(out.read_text(encoding="utf-8"))["runs"][0]["counties_ok"] == ["Harjumaa"]
+    assert any(r["level"] == "county" and r["enough"] for r in res["regions"])
+    assert s.runs()[0]["complete"] is True
+    assert any("Harjumaa" in m for m in messages)
+
+
+def test_failed_county_is_skipped_but_others_kept(tmp_path):
+    def scrape(deal, county_id, on_page=None):
+        if county_id == 2 and deal == 2:
+            raise scraper.FetchError("võrk maas")
+        loc = "Kesklinn, Tallinn" if county_id == 1 else "Kärdla linn, Hiiumaa vald"
+        return listings(loc, 100000 if deal == 1 else 500, 5, county_id * 1000 + deal * 100)
+
+    s = Store(":memory:")
+    messages = []
+    res = pipeline.run_once(s, counties={1: "Harjumaa", 2: "Hiiumaa"}, scrape=scrape,
+                            progress=messages.append, results_path=tmp_path / "r.json")
+    run = s.runs()[0]
+    assert run["counties_ok"] == ["Harjumaa"] and run["complete"] is False
+    assert not [r for r in res["regions"] if r["path"][0] == "Hiiumaa"]
+    # Hiiumaa müügid ei tohi andmebaasi jõuda ilma üürideta
+    assert all(o["county"] == "Harjumaa" for o in s.observations(run["id"]))
+    assert any("VIGA" in m and "Hiiumaa" in m for m in messages)
+
+
+def test_publish_runs_git_commands(tmp_path):
+    calls = []
+
+    class Done:
+        returncode = 0
+
+    pipeline.publish(tmp_path, run=lambda args, cwd, check: calls.append(args) or Done())
+    assert calls[0] == ["git", "add", "data", "docs/data"]
+    assert calls[1][:3] == ["git", "commit", "-m"]
+    assert calls[2] == ["git", "push"]
