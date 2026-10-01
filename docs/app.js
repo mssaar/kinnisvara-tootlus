@@ -174,6 +174,7 @@ function bind() {
     if (!key) return;
     state.sort = { key, dir: state.sort.key === key ? -state.sort.dir : (key === "name" || key === "address" || key === "parent" ? 1 : -1) };
     render();
+    document.querySelector(`thead [data-sort="${key}"]`)?.focus();
   });
   $("run-btn").addEventListener("click", async () => {
     $("run-btn").disabled = true;
