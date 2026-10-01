@@ -95,3 +95,16 @@ def test_empty_result_page_ends_county_deal(tmp_path):
              browser.page_url(2, "Hiiumaa", 50): [page([2], "https://www.kv.ee/korterid-uur/hiiumaa")]}
     n = browser.collect(FakeDriver(pages), tmp_path, {2: "Hiiumaa"}, progress=lambda m: None, sleep=lambda s: None)
     assert n == 1
+
+
+def test_normal_page_with_cloudflare_script_is_not_a_challenge(tmp_path):
+    script = '<script src="/cdn-cgi/challenge-platform/scripts/jsd/main.js"></script>'
+    u = browser.page_url
+    uur = "https://www.kv.ee/korterid-uur/hiiumaa"
+    pages = {u(1, "Hiiumaa", 0): [page([1]).replace("</body>", script + "</body>")],
+             u(1, "Hiiumaa", 50): [page([1])],
+             u(2, "Hiiumaa", 0): [page([2], uur)], u(2, "Hiiumaa", 50): [page([2], uur)]}
+    msgs = []
+    n = browser.collect(FakeDriver(pages), tmp_path, {2: "Hiiumaa"}, progress=msgs.append, sleep=lambda s: None)
+    assert n == 2
+    assert not any("kontroll" in m for m in msgs)

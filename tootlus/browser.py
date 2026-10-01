@@ -47,7 +47,7 @@ def _wait_for_page(driver, progress, sleep, clock) -> str:
     warned = False
     while True:
         html = driver.page_source
-        if not _CHALLENGE.search(html):
+        if not _CHALLENGE.search(html) or parse_page(html):
             return html
         if not warned:
             progress("Cloudflare'i kontroll — lahenda see brauseriaknas, kogumine jätkub ise")
