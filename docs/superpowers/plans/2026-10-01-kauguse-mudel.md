@@ -293,6 +293,259 @@ git commit -m "feat: brauserist salvestatud kv.ee lehtede import"
 
 ---
 
+### Task 1b: Brauseri kogur (Selenium, nähtav Edge)
+
+Kasutaja otsus (2026-10-01): lehed peab koguma programm ise. Selenium juhib nähtavat Edge'i akent: nõustub küpsistega, käib maakonna müügi- ja üürilehed läbi ja salvestab iga lehe HTML-i kausta, mille `importer.import_dir` impordib. **Piir:** Cloudflare'i kontrolli ei lahendata automaatselt ega peideta automatiseerimist (mitte undetected-chromedriver, stealth-pluginaid, CAPTCHA-teenuseid ega `navigator.webdriver` muutmist) — kui kontroll ilmub, logitakse "Lahenda kontroll brauseriaknas" ja oodatakse kuni 5 min, kuni lehel on kuulutused.
+
+**Files:**
+- Create: `tootlus/browser.py`
+- Modify: `run.py` (`--browser`), `tootlus/server.py` (`serve(..., browser=False)`), `requirements.txt` (`selenium>=4.20`)
+- Test: `tests/test_browser.py`
+
+**Interfaces:**
+- Consumes: `parser.parse_page`, `config.COUNTIES`, `config.county_slug`, `importer.import_dir`
+- Produces: `browser.page_url(deal_type:int, county:str, start:int) -> str`; `browser.ChallengeTimeout(Exception)`; `browser.collect(driver, out_dir:Path, counties:dict[int,str], progress=print, sleep=time.sleep, clock=time.monotonic) -> int` (salvestatud failide arv); `browser.make_driver()` (päris Edge); `browser.collect_and_import(store, counties, progress=print, out_root=ROOT/"data"/"lehed") -> list[str]`.
+
+- [ ] **Step 1: Kirjuta failivad testid `tests/test_browser.py`**
+
+```python
+import pytest
+
+from tootlus import browser
+
+
+def card(i):
+    return (f'<article class="default object-type-apartment" data-object-id="{i}" data-object-url="/x-{i}">'
+            f'<div class="h2"><a data-skeleton="object"><strong>Tn {i}</strong>, Kesklinn, Tallinn</a></div>'
+            f'<div class="rooms">2</div><div class="area">50 m²</div><div class="price">100 000 € <small>2 000 €/m²</small></div></article>')
+
+
+def page(ids, canonical="https://www.kv.ee/korterid-muuk/hiiumaa"):
+    return f'<html><head><link rel="canonical" href="{canonical}"></head><body>{"".join(card(i) for i in ids)}</body></html>'
+
+
+CHALLENGE = "<html><head><title>Just a moment...</title></head><body>cf challenge</body></html>"
+
+
+class FakeButton:
+    def __init__(self, text, log):
+        self.text, self.log = text, log
+
+    def click(self):
+        self.log.append(("click", self.text))
+
+
+class FakeDriver:
+    """pages: url -> list of page sources returned on successive reads of page_source."""
+
+    def __init__(self, pages, buttons=()):
+        self.pages = pages
+        self.current = None
+        self.log = []
+        self.buttons = [FakeButton(t, self.log) for t in buttons]
+        self.reads = {}
+
+    def get(self, url):
+        self.log.append(("get", url))
+        self.current = url
+
+    @property
+    def page_source(self):
+        seq = self.pages.get(self.current, ["<html></html>"])
+        n = self.reads.get(self.current, 0)
+        self.reads[self.current] = n + 1
+        return seq[min(n, len(seq) - 1)]
+
+    def find_elements(self, by, value):
+        return list(self.buttons)
+
+
+def test_page_url():
+    assert browser.page_url(1, "Lääne-Virumaa", 50) == "https://www.kv.ee/korterid-muuk/laane-virumaa?start=50"
+    assert browser.page_url(2, "Harjumaa", 0) == "https://www.kv.ee/korterid-uur/harjumaa?start=0"
+
+
+def test_collect_pages_until_no_new_ids(tmp_path):
+    u = browser.page_url
+    pages = {
+        u(1, "Hiiumaa", 0): [page(range(1, 51))], u(1, "Hiiumaa", 50): [page(range(51, 61))],
+        u(1, "Hiiumaa", 100): [page(range(51, 61))],
+        u(2, "Hiiumaa", 0): [page(range(1, 6), "https://www.kv.ee/korterid-uur/hiiumaa")],
+        u(2, "Hiiumaa", 50): [page(range(1, 6), "https://www.kv.ee/korterid-uur/hiiumaa")],
+    }
+    d = FakeDriver(pages, buttons=["Nõustun"])
+    n = browser.collect(d, tmp_path, {2: "Hiiumaa"}, progress=lambda m: None, sleep=lambda s: None)
+    assert n == 3
+    assert sorted(p.name for p in tmp_path.iterdir()) == [
+        "hiiumaa-muuk-00000.html", "hiiumaa-muuk-00050.html", "hiiumaa-uur-00000.html"]
+    assert ("click", "Nõustun") in d.log
+
+
+def test_waits_for_challenge_then_continues(tmp_path):
+    u = browser.page_url
+    pages = {u(1, "Hiiumaa", 0): [CHALLENGE, CHALLENGE, page([1])], u(1, "Hiiumaa", 50): [page([1])],
+             u(2, "Hiiumaa", 0): [page([2], "https://www.kv.ee/korterid-uur/hiiumaa")],
+             u(2, "Hiiumaa", 50): [page([2], "https://www.kv.ee/korterid-uur/hiiumaa")]}
+    msgs = []
+    n = browser.collect(FakeDriver(pages), tmp_path, {2: "Hiiumaa"}, progress=msgs.append, sleep=lambda s: None)
+    assert n == 2
+    assert any("kontroll" in m for m in msgs)
+
+
+def test_challenge_timeout(tmp_path):
+    t = iter(range(0, 10000, 30))
+    pages = {browser.page_url(1, "Hiiumaa", 0): [CHALLENGE]}
+    with pytest.raises(browser.ChallengeTimeout):
+        browser.collect(FakeDriver(pages), tmp_path, {2: "Hiiumaa"}, progress=lambda m: None,
+                        sleep=lambda s: None, clock=lambda: next(t))
+
+
+def test_empty_result_page_ends_county_deal(tmp_path):
+    pages = {browser.page_url(1, "Hiiumaa", 0): ['<html><body><div class="results"></div><p>Kuulutusi ei leitud</p></body></html>'],
+             browser.page_url(2, "Hiiumaa", 0): [page([2], "https://www.kv.ee/korterid-uur/hiiumaa")],
+             browser.page_url(2, "Hiiumaa", 50): [page([2], "https://www.kv.ee/korterid-uur/hiiumaa")]}
+    n = browser.collect(FakeDriver(pages), tmp_path, {2: "Hiiumaa"}, progress=lambda m: None, sleep=lambda s: None)
+    assert n == 1
+```
+
+- [ ] **Step 2: Käivita, veendu et kukuvad läbi** — `python -m pytest tests/test_browser.py -v` → `ModuleNotFoundError`.
+
+- [ ] **Step 3: Lisa `requirements.txt`-i `selenium>=4.20` ja `pip install -r requirements.txt`.**
+
+- [ ] **Step 4: Kirjuta `tootlus/browser.py`**
+
+```python
+"""kv.ee otsingulehtede kogumine nähtava Edge'i aknaga (Selenium) ja salvestamine importimiseks.
+
+Cloudflare'i kontrolli ei lahendata automaatselt: kui see ilmub, ootab programm, kuni kasutaja selle
+brauseriaknas ära teeb.
+"""
+from __future__ import annotations
+
+import re
+import time
+from datetime import date
+from pathlib import Path
+
+from . import config
+from .parser import parse_page
+
+SITE = "https://www.kv.ee"
+DEAL_PATHS = {config.DEAL_SALE: "korterid-muuk", config.DEAL_RENT: "korterid-uur"}
+DEAL_LABELS = {config.DEAL_SALE: "müük", config.DEAL_RENT: "üür"}
+PAGE_DELAY_S = 2.0
+CHALLENGE_TIMEOUT_S = 300
+POLL_S = 2.0
+_CHALLENGE = re.compile(r"Just a moment|challenge-platform|cf-chl|Checking your browser", re.I)
+_CONSENT = re.compile(r"^(nõustun|nõustu|luba kõik|accept all|accept|nõustun kõigiga)$", re.I)
+
+
+class ChallengeTimeout(Exception):
+    """Cloudflare'i kontroll ei lahenenud lubatud aja jooksul."""
+
+
+def page_url(deal_type: int, county: str, start: int) -> str:
+    return f"{SITE}/{DEAL_PATHS[deal_type]}/{config.county_slug(county)}?start={start}"
+
+
+def _accept_cookies(driver) -> bool:
+    for button in driver.find_elements("css selector", "button"):
+        try:
+            if _CONSENT.match((button.text or "").strip()):
+                button.click()
+                return True
+        except Exception:  # noqa: BLE001 - nupp võis kaduda; proovime järgmist
+            continue
+    return False
+
+
+def _wait_for_page(driver, progress, sleep, clock) -> str:
+    started = clock()
+    warned = False
+    while True:
+        html = driver.page_source
+        if not _CHALLENGE.search(html):
+            return html
+        if not warned:
+            progress("Cloudflare'i kontroll — lahenda see brauseriaknas, kogumine jätkub ise")
+            warned = True
+        if clock() - started > CHALLENGE_TIMEOUT_S:
+            raise ChallengeTimeout("Cloudflare'i kontroll ei lahenenud 5 minutiga")
+        sleep(POLL_S)
+
+
+def collect(driver, out_dir: Path, counties: dict[int, str], progress=print, sleep=time.sleep,
+            clock=time.monotonic) -> int:
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    saved = 0
+    consent_done = False
+    for county in counties.values():
+        for deal in (config.DEAL_SALE, config.DEAL_RENT):
+            seen: set[int] = set()
+            for page in range(config.MAX_PAGES):
+                start = page * config.PAGE_SIZE
+                driver.get(page_url(deal, county, start))
+                html = _wait_for_page(driver, progress, sleep, clock)
+                if not consent_done:
+                    consent_done = _accept_cookies(driver)
+                    if consent_done:
+                        html = driver.page_source
+                ids = {l.id for l in parse_page(html)}
+                if not ids - seen:
+                    break
+                seen |= ids
+                name = f"{config.county_slug(county)}-{DEAL_PATHS[deal].split('-')[1]}-{start:05d}.html"
+                (out_dir / name).write_text(html, encoding="utf-8")
+                saved += 1
+                progress(f"{county} {DEAL_LABELS[deal]}: leht {page + 1}, {len(seen)} kuulutust")
+                sleep(PAGE_DELAY_S)
+    return saved
+
+
+def make_driver():
+    from selenium import webdriver
+    return webdriver.Edge()
+
+
+def collect_and_import(store, counties: dict[int, str], progress=print, out_root: Path | None = None) -> list[str]:
+    from .importer import import_dir
+    from .pipeline import ROOT
+    out_dir = Path(out_root or ROOT / "data" / "lehed") / date.today().isoformat()
+    driver = make_driver()
+    try:
+        collect(driver, out_dir, counties, progress=progress)
+    finally:
+        driver.quit()
+    return import_dir(store, out_dir, progress=progress)
+```
+
+Märkus: failinimes `korterid-muuk` → `muuk`, `korterid-uur` → `uur`.
+
+- [ ] **Step 5: Käivita testid** — `python -m pytest tests/test_browser.py -v` → 5 passed.
+
+- [ ] **Step 6: CLI ja server**
+
+`run.py`: docstringi rida `python run.py --browser       kogu kv.ee lehed nähtava Edge'i aknaga (Selenium)`; argument `parser.add_argument("--browser", action="store_true")`; `--serve` haru: `serve(args.port, counties, browser=args.browser)`; `try:` plokis enne `elif args.analyze_only` lisa:
+```python
+        elif args.browser:
+            from tootlus.browser import collect_and_import
+            collect_and_import(store, counties)
+            results = pipeline.analyze_only(store)
+```
+`tootlus/server.py` `serve(port, counties, browser=False)`: runneris kui `browser`, siis `collect_and_import(store, counties, progress=progress)` + `pipeline.analyze_only(store)` (Task 4 lisab hiljem `progress` parameetri; siis anna see edasi), muidu senine `pipeline.run_once`.
+
+- [ ] **Step 7: Täielik testikomplekt** — `python -m pytest -q` → kõik läbivad. Ära käivita päris `--browser` kogumist selles sammus (see on Task 6).
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add requirements.txt tootlus/browser.py run.py tootlus/server.py tests/test_browser.py
+git commit -m "feat: kv.ee lehtede kogumine nähtava Edge'i aknaga (Selenium)"
+```
+
+---
+
 ### Task 2: Geokodeerija (`geocode.py`)
 
 **Files:**
