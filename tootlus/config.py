@@ -42,3 +42,11 @@ SALE_M2_RANGE = (200.0, 15000.0)
 RENT_M2_RANGE = (2.0, 60.0)
 TOP_LISTINGS = 500
 ROOM_GROUPS = ("1", "2", "3", "4+")
+
+
+_ASCII = str.maketrans({"õ": "o", "ä": "a", "ö": "o", "ü": "u", "š": "s", "ž": "z"})
+
+
+def county_slug(name: str) -> str:
+    """kv.ee URL-i maakonna osa, nt "Lääne-Virumaa" -> "laane-virumaa"."""
+    return name.lower().translate(_ASCII)
