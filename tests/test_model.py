@@ -10,7 +10,9 @@ KM_LAT = 1 / 111.32
 KM_LON = 1 / (111.32 * math.cos(math.radians(59.43)))
 
 
-def synth(n, base, slope, seed, kind, undervalued_id=None):
+def synth(n, base, slope, seed, kind, undervalued_id=None, distance_effect=None):
+    if distance_effect is None:
+        distance_effect = lambda d: slope * d
     rng = np.random.default_rng(seed)
     rows = []
     conditions = ["heas korras", "uus", "renoveeritud", "keskmises seisukorras", None]
@@ -22,7 +24,7 @@ def synth(n, base, slope, seed, kind, undervalued_id=None):
         rooms = int(rng.integers(1, 5))
         area = float(rng.uniform(25, 110))
         d = float(model.haversine_km(lat, lon, *CENTER))
-        log_m2 = math.log(base) + slope * d + 0.08 * (rooms == 3) + rng.normal(0, 0.05)
+        log_m2 = math.log(base) + distance_effect(d) + 0.08 * (rooms == 3) + rng.normal(0, 0.05)
         if undervalued_id is not None and i == 0:
             log_m2 += math.log(0.7)
         m2 = math.exp(log_m2)
@@ -77,6 +79,30 @@ def test_curve_and_subdistricts():
     assert {"name", "lat", "lon", "n", "residual_median"} <= set(subs[0])
 
 
+def test_piecewise_slope_change():
+    def piecewise_distance_effect(d):
+        # Slope is -0.12/km for d <= 5 km, -0.03/km for d > 5 km, continuous at 5 km
+        if d <= 5:
+            return -0.12 * d
+        else:
+            return -0.45 - 0.03 * d
+
+    sale = synth(1500, 3500, -0.08, seed=11, kind="sale", distance_effect=piecewise_distance_effect)
+    rent = synth(600, 16, -0.05, seed=12, kind="rent")
+    res = model.fit_run(sale, rent)
+
+    # At 3 km, the true slope is -0.12
+    expected_sale_3 = math.exp(-0.12 * 0.1) - 1
+    # At 6 km, the true slope is -0.03
+    expected_sale_6 = math.exp(-0.03 * 0.1) - 1
+
+    assert res["effects"]["sale"]["3"] == pytest.approx(expected_sale_3, rel=0.2)
+    assert res["effects"]["sale"]["6"] == pytest.approx(expected_sale_6, rel=0.2)
+
+    # The two effects should differ clearly
+    assert abs(res["effects"]["sale"]["3"] - res["effects"]["sale"]["6"]) > 0.005
+
+
 def test_rare_categories_do_not_break_fit():
     sale = synth(200, 3500, -0.08, seed=5, kind="sale")
     rent = synth(100, 16, -0.05, seed=6, kind="rent")
@@ -87,6 +113,15 @@ def test_rare_categories_do_not_break_fit():
     res = model.fit_run(sale, rent)
     assert res is not None
     assert all(math.isfinite(v) for v in res["effects"]["sale"].values())
+
+    # Assert sale effects match expected constant slope
+    expected_sale = math.exp(-0.08 * 0.1) - 1
+    for d in ("1", "3", "6"):
+        assert res["effects"]["sale"][d] == pytest.approx(expected_sale, rel=0.15)
+
+    # Assert both r2 values are finite
+    assert math.isfinite(res["r2"]["sale"])
+    assert math.isfinite(res["r2"]["rent"])
 
 
 def test_too_few_rows():
