@@ -44,11 +44,11 @@ function renderMap() {
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
     maxZoom: 18, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
   }).addTo(map);
-  d.subdistricts.forEach((s) => {
+  d.subdistricts.filter((s) => Number.isFinite(s.lat) && Number.isFinite(s.lon)).forEach((s) => {
     L.circle([s.lat, s.lon], { radius: 120 + Math.sqrt(s.n) * 60, color: css("--surface"), weight: 1, fillColor: divergingColor(s.residual_median), fillOpacity: 0.7 })
       .bindTooltip(`${esc(s.name)}: ${fmtPct(s.residual_median)} mudelist (${s.n} kuulutust)`).addTo(map);
   });
-  d.listings.forEach((l) => {
+  d.listings.filter((l) => Number.isFinite(l.lat) && Number.isFinite(l.lon)).forEach((l) => {
     L.circleMarker([l.lat, l.lon], { radius: 4, color: css("--surface"), weight: 1.5, fillColor: css("--good"), fillOpacity: 1 })
       .bindPopup(`<a href="${esc(safeUrl(l.url))}" target="_blank" rel="noopener">${esc(l.address)}</a><br>` +
         `${eur.format(l.price)} € · mudel ${eur.format(l.predicted_price)} € (${fmtPct(l.residual)})`).addTo(map);
@@ -68,7 +68,11 @@ function niceStep(raw) {
 }
 
 function renderChart(svgId, key, fmt) {
-  const svg = $(svgId), curve = state.data.curve, W = 480, H = 220, P = { l: 52, r: 12, t: 10, b: 30 };
+  const svg = $(svgId), curve = (state.data.curve || []).filter((c) => Number.isFinite(c[key]) && Number.isFinite(c.d));
+  svg.closest("figure").hidden = !curve.length;
+  if (!curve.length) return;
+  const W = Math.max(260, Math.round(svg.getBoundingClientRect().width) || 480), H = 220, P = { l: 48, r: 14, t: 10, b: 30 };
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
   const ys = curve.map((c) => c[key]), yMax = Math.max(...ys) * 1.05, yMin = Math.min(...ys) * 0.9;
   const x = (d) => P.l + (d / 15) * (W - P.l - P.r);
   const y = (v) => H - P.b - ((v - yMin) / (yMax - yMin)) * (H - P.t - P.b);
@@ -148,11 +152,23 @@ async function load() {
   state.data = data;
   $("content").hidden = false;
   renderStats();
-  renderMap();
+  renderCharts();
+  renderTables();
+  try {
+    if (typeof L === "undefined") throw new Error("Leaflet puudub");
+    renderMap();
+  } catch {
+    $("map").textContent = "Kaarti ei õnnestunud laadida.";
+    $("map").style.cssText = "display:grid;place-items:center;height:auto;min-height:80px;color:var(--muted)";
+  }
+}
+
+function renderCharts() {
   renderChart("chart-sale", "sale_m2", (v) => eur.format(v));
   renderChart("chart-rent", "rent_m2", (v) => num1.format(v));
-  renderTables();
 }
+let resizeT;
+window.addEventListener("resize", () => { clearTimeout(resizeT); resizeT = setTimeout(() => state.data && renderCharts(), 150); });
 
 $("rooms").addEventListener("change", (e) => { state.rooms = e.target.value; renderTables(); });
 load();
