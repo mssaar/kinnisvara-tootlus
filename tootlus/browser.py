@@ -31,14 +31,30 @@ def page_url(deal_type: int, county: str, start: int) -> str:
     return f"{SITE}/{DEAL_PATHS[deal_type]}/{config.county_slug(county)}?start={start}"
 
 
-def _accept_cookies(driver) -> bool:
-    for button in driver.find_elements("css selector", "button"):
+def _accept_cookies(driver, sleep=time.sleep, attempts=5) -> bool:
+    for attempt in range(attempts):
+        # Try to find OneTrust banner button by ID first
         try:
-            if _CONSENT.match((button.text or "").strip()):
-                button.click()
+            buttons = driver.find_elements("css selector", "#onetrust-accept-btn-handler")
+            if buttons:
+                buttons[0].click()
                 return True
         except Exception:  # noqa: BLE001 - nupp võis kaduda; proovime järgmist
-            continue
+            pass
+
+        # Fall back to text-based button matching
+        for button in driver.find_elements("css selector", "button"):
+            try:
+                if _CONSENT.match((button.text or "").strip()):
+                    button.click()
+                    return True
+            except Exception:  # noqa: BLE001 - nupp võis kaduda; proovime järgmist
+                continue
+
+        # If this wasn't the last attempt, sleep before retrying
+        if attempt < attempts - 1:
+            sleep(1.0)
+
     return False
 
 
@@ -63,6 +79,7 @@ def collect(driver, out_dir: Path, counties: dict[int, str], progress=print, sle
     out_dir.mkdir(parents=True, exist_ok=True)
     saved = 0
     consent_done = False
+    consent_retry_pages = 0  # Track pages where we try to accept cookies
     for county in counties.values():
         for deal in (config.DEAL_SALE, config.DEAL_RENT):
             seen: set[int] = set()
@@ -70,8 +87,9 @@ def collect(driver, out_dir: Path, counties: dict[int, str], progress=print, sle
                 start = page * config.PAGE_SIZE
                 driver.get(page_url(deal, county, start))
                 html = _wait_for_page(driver, progress, sleep, clock)
-                if not consent_done:
-                    consent_done = _accept_cookies(driver)
+                if not consent_done and consent_retry_pages < 3:
+                    consent_done = _accept_cookies(driver, sleep=sleep)
+                    consent_retry_pages += 1
                     if consent_done:
                         html = driver.page_source
                 ids = {l.id for l in parse_page(html)}

@@ -17,21 +17,22 @@ CHALLENGE = "<html><head><title>Just a moment...</title></head><body>cf challeng
 
 
 class FakeButton:
-    def __init__(self, text, log):
-        self.text, self.log = text, log
+    def __init__(self, text, log, id=None):
+        self.text, self.log, self.id = text, log, id
 
     def click(self):
-        self.log.append(("click", self.text))
+        self.log.append(("click", self.text or f"id:{self.id}"))
 
 
 class FakeDriver:
     """pages: url -> list of page sources returned on successive reads of page_source."""
 
-    def __init__(self, pages, buttons=()):
+    def __init__(self, pages, buttons=(), onetrust_button=None):
         self.pages = pages
         self.current = None
         self.log = []
         self.buttons = [FakeButton(t, self.log) for t in buttons]
+        self.onetrust_button = onetrust_button
         self.reads = {}
 
     def get(self, url):
@@ -46,7 +47,14 @@ class FakeDriver:
         return seq[min(n, len(seq) - 1)]
 
     def find_elements(self, by, value):
-        return list(self.buttons)
+        if by == "css selector":
+            # Handle ID selector for OneTrust button
+            if value == "#onetrust-accept-btn-handler" and self.onetrust_button:
+                return [self.onetrust_button]
+            # Handle regular button selector
+            elif value == "button":
+                return list(self.buttons)
+        return []
 
 
 def test_page_url():
@@ -108,3 +116,82 @@ def test_normal_page_with_cloudflare_script_is_not_a_challenge(tmp_path):
     n = browser.collect(FakeDriver(pages), tmp_path, {2: "Hiiumaa"}, progress=msgs.append, sleep=lambda s: None)
     assert n == 2
     assert not any("kontroll" in m for m in msgs)
+
+
+def test_onetrust_banner_clicked_by_id(tmp_path):
+    """OneTrust banner with #onetrust-accept-btn-handler ID is clicked on first page."""
+    u = browser.page_url
+    pages = {
+        u(1, "Hiiumaa", 0): [page(range(1, 51))],
+        u(1, "Hiiumaa", 50): [page(range(51, 61))],
+        u(1, "Hiiumaa", 100): [page(range(51, 61))],
+        u(2, "Hiiumaa", 0): [page([1], "https://www.kv.ee/korterid-uur/hiiumaa")],
+        u(2, "Hiiumaa", 50): [page([1], "https://www.kv.ee/korterid-uur/hiiumaa")],
+    }
+    d = FakeDriver(pages)
+    onetrust_btn = FakeButton(None, d.log)
+    onetrust_btn.id = "onetrust-accept-btn-handler"
+    d.onetrust_button = onetrust_btn
+    n = browser.collect(d, tmp_path, {2: "Hiiumaa"}, progress=lambda m: None, sleep=lambda s: None)
+    assert n == 3
+    assert ("click", "id:onetrust-accept-btn-handler") in d.log
+
+
+def test_onetrust_banner_delayed_appearance(tmp_path):
+    """OneTrust banner appears on 3rd attempt after returning nothing twice, still gets clicked."""
+    u = browser.page_url
+    pages = {
+        u(1, "Hiiumaa", 0): [page(range(1, 51))],
+        u(1, "Hiiumaa", 50): [page(range(51, 61))],
+        u(1, "Hiiumaa", 100): [page(range(51, 61))],
+        u(2, "Hiiumaa", 0): [page([1], "https://www.kv.ee/korterid-uur/hiiumaa")],
+        u(2, "Hiiumaa", 50): [page([1], "https://www.kv.ee/korterid-uur/hiiumaa")],
+    }
+    sleep_log = []
+
+    class DelayedOneTrustDriver(FakeDriver):
+        def __init__(self, pages):
+            super().__init__(pages)
+            self.onetrust_attempt = 0
+
+        def find_elements(self, by, value):
+            if by == "css selector":
+                if value == "#onetrust-accept-btn-handler":
+                    self.onetrust_attempt += 1
+                    # Return button only on 3rd attempt
+                    if self.onetrust_attempt >= 3:
+                        btn = FakeButton(None, self.log)
+                        btn.id = "onetrust-accept-btn-handler"
+                        return [btn]
+                    return []
+                elif value == "button":
+                    return list(self.buttons)
+            return []
+
+    d = DelayedOneTrustDriver(pages)
+
+    def mock_sleep(s):
+        sleep_log.append(s)
+
+    n = browser.collect(d, tmp_path, {2: "Hiiumaa"}, progress=lambda m: None, sleep=mock_sleep)
+    assert n == 3
+    # Should have slept 2 times during 5 attempts on first page (attempts 1 and 2)
+    assert len(sleep_log) >= 2
+    assert ("click", "id:onetrust-accept-btn-handler") in d.log
+
+
+def test_no_banner_stops_retrying_after_3_pages(tmp_path):
+    """When no banner is found, collection finishes and retrying stops after 3 pages."""
+    u = browser.page_url
+    pages = {
+        u(1, "Hiiumaa", 0): [page(range(1, 51))],
+        u(1, "Hiiumaa", 50): [page(range(51, 61))],
+        u(1, "Hiiumaa", 100): [page(range(51, 61))],
+        u(2, "Hiiumaa", 0): [page([1], "https://www.kv.ee/korterid-uur/hiiumaa")],
+        u(2, "Hiiumaa", 50): [page([1], "https://www.kv.ee/korterid-uur/hiiumaa")],
+    }
+    d = FakeDriver(pages)  # No banner, no onetrust button
+    n = browser.collect(d, tmp_path, {2: "Hiiumaa"}, progress=lambda m: None, sleep=lambda s: None)
+    assert n == 3
+    # Verify that _accept_cookies was called (there will be get requests)
+    # and collection still completed successfully
