@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="et">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Üüritootlus</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <div>
+      <h1>Üüritootlus</h1>
+      <p class="sub" id="meta">Laen andmeid…</p>
+    </div>
+    <div class="run" id="run" hidden>
+      <button id="run-btn" type="button">Käivita uuesti</button>
+      <p class="run-log" id="run-log" aria-live="polite"></p>
+    </div>
+  </header>
+
+  <nav class="tabs" role="tablist" aria-label="Vaade">
+    <button role="tab" data-view="regions" aria-selected="true">Piirkonnad</button>
+    <button role="tab" data-view="listings" aria-selected="false">Parimad kuulutused</button>
+  </nav>
+
+  <section class="filters" aria-label="Filtrid">
+    <label class="f-level">Tase
+      <select id="level">
+        <option value="county">Maakond</option>
+        <option value="city">Linn / vald</option>
+        <option value="district" selected>Linnaosa / alev</option>
+        <option value="subdistrict">Asum / küla</option>
+      </select>
+    </label>
+    <label class="f-excenter check"><input type="checkbox" id="ex-center"> Ilma maakonnakeskuseta</label>
+    <label>Toad
+      <select id="rooms">
+        <option value="all">Kõik</option><option value="1">1</option><option value="2">2</option>
+        <option value="3">3</option><option value="4+">4+</option>
+      </select>
+    </label>
+    <label>Asukoht
+      <select id="parent"><option value="">Kõik</option></select>
+    </label>
+    <label class="grow">Otsi <input type="search" id="query" placeholder="nt Kalamaja"></label>
+    <label class="check"><input type="checkbox" id="show-thin" checked> Näita vähe andmetega ridu</label>
+  </section>
+
+  <main>
+    <p class="hint" id="hint" aria-live="polite"></p>
+    <div class="table-wrap" tabindex="0" role="region" aria-label="Tulemuste tabel"><table id="table"><thead></thead><tbody></tbody></table></div>
+    <p class="empty" id="empty" hidden>Andmeid pole. Käivita <code>python run.py</code>.</p>
+  </main>
+
+  <footer class="foot">
+    Bruto tootlus = üüri €/m² mediaan × 12 / müügi €/m² mediaan, arvutatud iga käivituse andmetest eraldi;
+    „Tootlus” on käivituste mediaan. Rida loetakse kehtivaks, kui müügi- ja üürikuulutusi on kumbagi vähemalt 5.
+    Allikas: kv.ee.
+  </footer>
+  <script src="app.js"></script>
+</body>
+</html>
