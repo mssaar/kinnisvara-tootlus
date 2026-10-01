@@ -70,3 +70,39 @@ code { font-size: .9em; }
   thead th:first-child { background: var(--head-bg); }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+/* --- Mudeli leht: diverging skaala (sinine = odavam kui mudel, oranž = kallim); valideeritud dataviz-validaatoriga,
+       CVD ΔE >= 20 (protan), normaalnägemine ΔE >= 26 --- */
+:root { --good: #1f6fb2; --bad: #c2551f; --neutral: #e8e6df; }
+@media (prefers-color-scheme: dark) { :root { --good: #4b97d8; --bad: #d96d3d; --neutral: #3a3e37; } }
+.site-nav { display: flex; gap: 16px; margin-bottom: 8px; font-size: 14px; }
+.site-nav a { color: var(--muted); padding: 6px 0; min-height: 32px; border-bottom: 2px solid transparent; }
+.site-nav a:hover { color: var(--ink); text-decoration: none; }
+.site-nav a[aria-current="page"] { color: var(--ink); font-weight: 600; border-bottom-color: var(--accent); }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin: 16px 0; }
+.stat { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px; display: grid; gap: 2px; box-shadow: var(--shadow); font-variant-numeric: tabular-nums; }
+.stat-k { font-size: 12px; color: var(--muted); }
+.stat-v { font-weight: 600; font-size: 1.1rem; }
+.stat-v2 { color: var(--muted); }
+#map { height: 460px; border-radius: var(--radius); border: 1px solid var(--line); background: var(--head-bg); }
+.legend { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; font-size: 13px; color: var(--muted); margin: 8px 0 0; }
+.legend .ramp { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; max-width: 100%; }
+.legend .bar { width: 120px; height: 10px; border-radius: 5px; border: 1px solid var(--line);
+  background: linear-gradient(90deg, var(--good), var(--neutral), var(--bad)); }
+.charts { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 16px 0; }
+.charts figure { margin: 0; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 10px 6px; box-shadow: var(--shadow); }
+.charts figcaption { font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+.charts svg { width: 100%; height: auto; display: block; }
+svg .grid { stroke: var(--line); stroke-width: 1; }
+svg .tick { fill: var(--muted); font-size: 11px; font-family: var(--font); font-variant-numeric: tabular-nums; }
+svg .line { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+main h2 { font-size: 18px; font-weight: 600; margin: 28px 0 8px; }
+main h2 + .table-wrap { margin-top: 8px; }
+.table-wrap.scroll { max-height: 440px; overflow-y: auto; }
+.table-wrap.scroll thead th { position: sticky; top: 0; z-index: 2; }
+.leaflet-container { font-family: var(--font); }
+@media (max-width: 700px) { .charts { grid-template-columns: 1fr; } }
+@media (max-width: 600px) { #map { height: 340px; } }
+main .filters { padding-left: 0; padding-right: 0; }
+.table-wrap.narrow { max-width: 640px; }
+body > .empty { max-width: 1200px; margin: 0 auto; padding: 24px 16px; }

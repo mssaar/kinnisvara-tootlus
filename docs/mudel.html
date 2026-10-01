@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="et">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Kaugus keskusest</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <div>
+      <nav class="site-nav" aria-label="Lehed">
+        <a href="index.html">Tootlus</a>
+        <a href="mudel.html" aria-current="page">Kaugus keskusest</a>
+      </nav>
+      <h1>Kaugus keskusest</h1>
+      <p class="sub" id="meta">Laen mudelit…</p>
+    </div>
+  </header>
+
+  <main id="content" hidden>
+    <section class="stats" id="stats" aria-label="Kauguse mõju"></section>
+    <section class="map-wrap"><div id="map" role="region" aria-label="Tallinna kaart"></div>
+      <p class="legend" id="legend"></p></section>
+    <section class="charts" aria-label="Hind kauguse järgi">
+      <figure><figcaption>Müük €/m² (tüüpkorter)</figcaption><svg id="chart-sale" viewBox="0 0 480 220" role="img"></svg></figure>
+      <figure><figcaption>Üür €/m² kuus (tüüpkorter)</figcaption><svg id="chart-rent" viewBox="0 0 480 220" role="img"></svg></figure>
+    </section>
+    <h2>Alahinnatud asumid</h2>
+    <div class="table-wrap scroll narrow"><table id="t-sub"><thead></thead><tbody></tbody></table></div>
+    <h2>Alahinnatud kuulutused</h2>
+    <section class="filters"><label>Toad
+      <select id="rooms"><option value="all">Kõik</option><option value="1">1</option><option value="2">2</option>
+        <option value="3">3</option><option value="4+">4+</option></select></label></section>
+    <div class="table-wrap scroll"><table id="t-list"><thead></thead><tbody></tbody></table></div>
+  </main>
+  <p class="empty" id="empty" hidden>Mudeli jaoks pole veel piisavalt Tallinna andmeid (vaja vähemalt 50 müügi- ja 30 üürikuulutust koordinaatidega). Käivita <code>python run.py</code> või <code>python run.py --import-dir &lt;kaust&gt;</code>.</p>
+
+  <footer class="foot">
+    Mudel: log(€/m²) = kauguse kõver (murdepunktid 2, 5, 8 km) + toad + pind + ehitusaasta + seisukord + korrus,
+    eraldi müügile ja üürile. Keskpunkt on punkt, millest kaugus selgitab müügihinda kõige paremini.
+    Alahinnatud = hind vähemalt 15% alla mudeli hinnangu. Koordinaadid: Maa- ja Ruumiamet (In-ADS). Andmed: kv.ee.
+  </footer>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <script src="mudel.js"></script>
+</body>
+</html>
