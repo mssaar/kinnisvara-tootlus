@@ -90,12 +90,17 @@ def make_server(port: int, docs_dir: Path, state: RunState, runner) -> Threading
     return ThreadingHTTPServer(("127.0.0.1", port), handler)
 
 
-def serve(port: int, counties: dict) -> None:
+def serve(port: int, counties: dict, browser: bool = False) -> None:
     def runner(progress):
         pipeline.DB_PATH.parent.mkdir(parents=True, exist_ok=True)
         store = Store(str(pipeline.DB_PATH))
         try:
-            pipeline.run_once(store, counties=counties, progress=progress)
+            if browser:
+                from .browser import collect_and_import
+                collect_and_import(store, counties, progress=progress)
+                pipeline.analyze_only(store)
+            else:
+                pipeline.run_once(store, counties=counties, progress=progress)
         finally:
             store.close()
 
