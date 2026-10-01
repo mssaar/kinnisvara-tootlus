@@ -98,3 +98,40 @@ def test_run_accepts_own_origin(server):
     base, _, _ = server
     port = base.rsplit(":", 1)[1]
     assert post(base + "/api/run", {"Origin": f"http://localhost:{port}", "Host": f"localhost:{port}"}) == 202
+
+
+def test_nothing_collected_sets_plain_error():
+    from tootlus.server import NothingCollected
+    state = RunState()
+
+    def runner(progress):
+        raise NothingCollected("Ühtegi maakonda ei kogutud")
+
+    assert state.start(runner)
+    assert wait_until(lambda: not state.snapshot()["running"])
+    assert state.snapshot()["error"] == "Ühtegi maakonda ei kogutud"
+
+
+def _patch_runner_env(monkeypatch, tmp_path, ok):
+    from tootlus import browser, pipeline
+    calls = []
+    monkeypatch.setattr(pipeline, "DB_PATH", tmp_path / "kv.sqlite")
+    monkeypatch.setattr(browser, "collect_and_import", lambda store, counties, progress: calls.append("browser") or ok)
+    monkeypatch.setattr(pipeline, "collect_curl", lambda store, counties, progress: calls.append("curl") or ok)
+    monkeypatch.setattr(pipeline, "analyze_only", lambda store, progress: calls.append("analyze"))
+    return calls
+
+
+def test_runner_defaults_to_browser_and_fails_on_nothing(monkeypatch, tmp_path):
+    from tootlus.server import NothingCollected, make_runner
+    calls = _patch_runner_env(monkeypatch, tmp_path, [])
+    with pytest.raises(NothingCollected, match="Ühtegi maakonda ei kogutud"):
+        make_runner({1: "Harjumaa"})(lambda m: None)
+    assert calls == ["browser"]
+
+
+def test_runner_curl_mode_analyzes_on_success(monkeypatch, tmp_path):
+    from tootlus.server import make_runner
+    calls = _patch_runner_env(monkeypatch, tmp_path, ["Harjumaa"])
+    make_runner({1: "Harjumaa"}, curl=True)(lambda m: None)
+    assert calls == ["curl", "analyze"]

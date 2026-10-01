@@ -70,3 +70,21 @@ def test_publish_runs_git_commands(tmp_path):
     assert calls[0] == ["git", "add", "data", "docs/data"]
     assert calls[1][:3] == ["git", "commit", "-m"]
     assert calls[2] == ["git", "push"]
+
+
+def test_collect_curl_with_no_counties_creates_no_run():
+    def scrape(deal, county_id, on_page=None):
+        raise scraper.FetchError("403")
+
+    s = Store(":memory:")
+    assert pipeline.collect_curl(s, counties={1: "Harjumaa"}, scrape=scrape, progress=lambda m: None) == []
+    assert s.runs() == []
+
+
+def test_collect_curl_returns_ok_counties():
+    def scrape(deal, county_id, on_page=None):
+        return listings("Kesklinn, Tallinn", 100000 if deal == 1 else 500, 5, deal * 100)
+
+    s = Store(":memory:")
+    assert pipeline.collect_curl(s, counties={1: "Harjumaa"}, scrape=scrape, progress=lambda m: None) == ["Harjumaa"]
+    assert s.runs()[0]["counties_ok"] == ["Harjumaa"]

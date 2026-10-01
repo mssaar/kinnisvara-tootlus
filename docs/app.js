@@ -155,7 +155,8 @@ async function pollStatus() {
   $("run-btn").disabled = status.running;
   $("run-btn").textContent = status.running ? "Kogun…" : "Käivita uuesti";
   const last = status.messages[status.messages.length - 1];
-  $("run-log").textContent = status.error ? `Viga: ${status.error}` : (status.running ? last || "Alustan…" : (status.finished_at ? "Valmis." : ""));
+  const done = last ? `Valmis. ${last}` : "Valmis.";
+  $("run-log").textContent = status.error ? `Viga: ${status.error}` : (status.running ? last || "Alustan…" : (status.finished_at ? done : ""));
   if (status.running) setTimeout(pollStatus, 1500);
   else if (state.wasRunning) loadData();
   state.wasRunning = status.running;

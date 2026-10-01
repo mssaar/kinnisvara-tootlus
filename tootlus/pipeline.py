@@ -15,9 +15,18 @@ DB_PATH = ROOT / "data" / "kv.sqlite"
 DEAL_LABELS = {config.DEAL_SALE: "müük", config.DEAL_RENT: "üür"}
 
 
+NO_COUNTIES_MSG = "Ühtegi maakonda ei kogutud"
+
+
 def run_once(store, counties=config.COUNTIES, scrape=scraper.scrape_county, progress=print,
              results_path=RESULTS_PATH, model_path=MODEL_PATH, geocoder=None) -> dict:
-    run_id = store.start_run()
+    collect_curl(store, counties, scrape, progress)
+    return analyze_only(store, results_path, model_path, geocoder, progress)
+
+
+def collect_curl(store, counties=config.COUNTIES, scrape=scraper.scrape_county, progress=print) -> list[str]:
+    """Kogub kv.ee otse (curl_cffi). Tagastab edukad maakonnad; kui ühtegi pole, käivitust ei looda."""
+    run_id = None
     ok: list[str] = []
     for county_id, name in counties.items():
         collected = {}
@@ -32,12 +41,15 @@ def run_once(store, counties=config.COUNTIES, scrape=scraper.scrape_county, prog
         except (scraper.FetchError, scraper.ParseError) as exc:
             progress(f"{name}: VIGA, maakond jäetakse sellest käivitusest välja ({exc})")
             continue
+        if run_id is None:
+            run_id = store.start_run()
         for deal, items in collected.items():
             store.save_listings(run_id, deal, name, items)
         ok.append(name)
-    store.finish_run(run_id, ok, complete=len(ok) == len(counties))
+    if run_id is not None:
+        store.finish_run(run_id, ok, complete=len(ok) == len(counties))
     progress(f"Kogumine valmis: {len(ok)}/{len(counties)} maakonda")
-    return analyze_only(store, results_path, model_path, geocoder, progress)
+    return ok
 
 
 def analyze_only(store, results_path=RESULTS_PATH, model_path=MODEL_PATH, geocoder=None, progress=print) -> dict:

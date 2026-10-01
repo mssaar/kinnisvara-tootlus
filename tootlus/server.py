@@ -15,6 +15,10 @@ from .store import Store
 MAX_MESSAGES = 50
 
 
+class NothingCollected(Exception):
+    """Kogumine/import ei andnud ühtegi maakonda; teade näidatakse kasutajale muutmata kujul."""
+
+
 class RunState:
     def __init__(self):
         self._lock = threading.Lock()
@@ -39,6 +43,8 @@ class RunState:
         error = None
         try:
             runner(self._progress)
+        except NothingCollected as exc:
+            error = str(exc)
         except Exception as exc:  # noqa: BLE001 - kõik vead tuleb kasutajale näidata
             error = f"{type(exc).__name__}: {exc}"
         with self._lock:
@@ -99,21 +105,28 @@ def make_server(port: int, docs_dir: Path, state: RunState, runner) -> Threading
     return ThreadingHTTPServer(("127.0.0.1", port), handler)
 
 
-def serve(port: int, counties: dict, browser: bool = False) -> None:
+def make_runner(counties: dict, curl: bool = False):
+    """Kogumine (vaikimisi brauseriga, curl=True korral otse) ja seejärel analüüs."""
     def runner(progress):
         pipeline.DB_PATH.parent.mkdir(parents=True, exist_ok=True)
         store = Store(str(pipeline.DB_PATH))
         try:
-            if browser:
-                from .browser import collect_and_import
-                collect_and_import(store, counties, progress=progress)
-                pipeline.analyze_only(store, progress=progress)
+            if curl:
+                ok = pipeline.collect_curl(store, counties, progress=progress)
             else:
-                pipeline.run_once(store, counties=counties, progress=progress)
+                from . import browser
+                ok = browser.collect_and_import(store, counties, progress=progress)
+            if not ok:
+                raise NothingCollected(pipeline.NO_COUNTIES_MSG)
+            pipeline.analyze_only(store, progress=progress)
         finally:
             store.close()
 
-    server = make_server(port, pipeline.ROOT / "docs", RunState(), runner)
+    return runner
+
+
+def serve(port: int, counties: dict, curl: bool = False) -> None:
+    server = make_server(port, pipeline.ROOT / "docs", RunState(), make_runner(counties, curl))
     url = f"http://127.0.0.1:{server.server_address[1]}/"
     print(f"Leht avatud: {url}  (Ctrl+C lõpetab)")
     webbrowser.open(url)
