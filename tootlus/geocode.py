@@ -14,6 +14,7 @@ from typing import Iterable
 
 INADS_URL = "https://inaadress.maaamet.ee/inaadress/gazetteer?address={address}&results=1"
 REQUEST_DELAY_S = 0.2
+MAX_CONSECUTIVE_FAILURES = 5  # nii mitu viga järjest -> In-ADS on maas, lõpetame
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS geocodes (
@@ -69,18 +70,27 @@ class Geocoder:
 
     def geocode_missing(self, queries: Iterable[str], progress=print) -> int:
         todo = sorted({q for q in queries if q and self._cached(q) is None})
+        streak = failed = 0
         for i, query in enumerate(todo, 1):
             url = INADS_URL.format(address=urllib.parse.quote(query))
             try:
                 data = self.fetch(url)
             except (urllib.error.URLError, OSError, ValueError) as exc:
-                progress(f"Geokodeerimine: {query}: viga ({exc}), proovin järgmisel korral uuesti")
+                streak += 1
+                failed += 1
+                if streak >= MAX_CONSECUTIVE_FAILURES:
+                    progress(f"Geokodeerimine katkestatud: {streak} järjestikust viga ({exc}); "
+                             "mudel kasutab olemasolevaid koordinaate")
+                    return i
             else:
+                streak = 0
                 addresses = (data.get("addresses") if isinstance(data, dict) else None) or []
                 self._store(query, addresses)
             if i % 100 == 0:
                 progress(f"Geokodeerimine: {i}/{len(todo)}")
             self.sleep(REQUEST_DELAY_S)
+        if failed:
+            progress(f"Geokodeerimine: {failed} päringut ebaõnnestus, proovin järgmisel korral uuesti")
         return len(todo)
 
     def _store(self, query: str, addresses: list) -> None:

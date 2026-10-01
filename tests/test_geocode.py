@@ -73,3 +73,35 @@ def test_non_dict_response_treated_as_not_found():
                  sleep=lambda s: None)
     g.geocode_missing(["Some Address, Tallinn"], progress=lambda m: None)
     assert g.lookup("Some Address, Tallinn") is None
+
+
+def test_stops_after_5_consecutive_failures_with_one_summary_line():
+    calls = []
+
+    def boom(url):
+        calls.append(url)
+        raise urllib.error.URLError("võrk maas")
+
+    msgs = []
+    g = Geocoder(sqlite3.connect(":memory:"), fetch=boom, sleep=lambda s: None)
+    g.geocode_missing([f"Tn {i}, Tallinn" for i in range(50)], progress=msgs.append)
+    assert len(calls) == 5
+    assert len(msgs) == 1
+    assert "katkestatud" in msgs[0] and "5 järjestikust viga" in msgs[0] and "võrk maas" in msgs[0]
+
+
+def test_success_resets_failure_counter():
+    calls = []
+
+    def flaky(url):
+        calls.append(url)
+        if len(calls) % 4 == 0:  # iga 4. päring õnnestub -> kunagi 5 viga järjest
+            return FOUND
+        raise urllib.error.URLError("võrk maas")
+
+    msgs = []
+    g = Geocoder(sqlite3.connect(":memory:"), fetch=flaky, sleep=lambda s: None)
+    g.geocode_missing([f"Tn {i}, Tallinn" for i in range(20)], progress=msgs.append)
+    assert len(calls) == 20
+    assert not any("katkestatud" in m for m in msgs)
+    assert not any("viga" in m for m in msgs)
