@@ -48,10 +48,10 @@ class FakeDriver:
 
     def find_elements(self, by, value):
         if by == "css selector":
-            # Handle ID selector for OneTrust button
+            # Käsitle ID valitsijat OneTrust nupu jaoks
             if value == "#onetrust-accept-btn-handler" and self.onetrust_button:
                 return [self.onetrust_button]
-            # Handle regular button selector
+            # Käsitle tavalist nupu valitsijat
             elif value == "button":
                 return list(self.buttons)
         return []
@@ -119,7 +119,7 @@ def test_normal_page_with_cloudflare_script_is_not_a_challenge(tmp_path):
 
 
 def test_onetrust_banner_clicked_by_id(tmp_path):
-    """OneTrust banner with #onetrust-accept-btn-handler ID is clicked on first page."""
+    """OneTrust bänner nuppu #onetrust-accept-btn-handler ID-ga klõpsitakse esimesel lehel."""
     u = browser.page_url
     pages = {
         u(1, "Hiiumaa", 0): [page(range(1, 51))],
@@ -138,16 +138,23 @@ def test_onetrust_banner_clicked_by_id(tmp_path):
 
 
 def test_onetrust_banner_delayed_appearance(tmp_path):
-    """OneTrust banner appears on 3rd attempt after returning nothing twice, still gets clicked."""
+    """OneTrust bänner ilmub 3. katsel pärast kahte tyhjat katset, klõpsitatakse siiski.
+
+    Verifitseerib, et:
+    - Nõusolekuuhe magamised on täpselt [1.0, 1.0] (enne kui bänner ilmub 3. katsel)
+    - Salvestatud leht uuendatakse pärast klõpsu (pärast klõpsu page_source kasutatakse)
+    """
     u = browser.page_url
+    pre_click_html = page(range(1, 51))
+    post_click_html = page(range(1, 101))  # Erinev sisu pärast klõpsu (100 kirjega)
     pages = {
-        u(1, "Hiiumaa", 0): [page(range(1, 51))],
-        u(1, "Hiiumaa", 50): [page(range(51, 61))],
-        u(1, "Hiiumaa", 100): [page(range(51, 61))],
+        u(1, "Hiiumaa", 0): [pre_click_html, post_click_html],  # Tagastatakse 2 korda (enne ja pärast klõpsu)
+        u(1, "Hiiumaa", 50): [page(range(101, 111))],  # Erinevad IDd
+        u(1, "Hiiumaa", 100): [page(range(101, 111))],  # Sama, kutsub pausi
         u(2, "Hiiumaa", 0): [page([1], "https://www.kv.ee/korterid-uur/hiiumaa")],
         u(2, "Hiiumaa", 50): [page([1], "https://www.kv.ee/korterid-uur/hiiumaa")],
     }
-    sleep_log = []
+    consent_sleep_log = []
 
     class DelayedOneTrustDriver(FakeDriver):
         def __init__(self, pages):
@@ -158,7 +165,7 @@ def test_onetrust_banner_delayed_appearance(tmp_path):
             if by == "css selector":
                 if value == "#onetrust-accept-btn-handler":
                     self.onetrust_attempt += 1
-                    # Return button only on 3rd attempt
+                    # Tagasta nupp ainult 3. katsel
                     if self.onetrust_attempt >= 3:
                         btn = FakeButton(None, self.log)
                         btn.id = "onetrust-accept-btn-handler"
@@ -171,27 +178,66 @@ def test_onetrust_banner_delayed_appearance(tmp_path):
     d = DelayedOneTrustDriver(pages)
 
     def mock_sleep(s):
-        sleep_log.append(s)
+        if s == 1.0:  # Nõusolekuuhe uurimise uni (mitte PAGE_DELAY_S, mis on 2.0)
+            consent_sleep_log.append(s)
 
     n = browser.collect(d, tmp_path, {2: "Hiiumaa"}, progress=lambda m: None, sleep=mock_sleep)
-    assert n == 3
-    # Should have slept 2 times during 5 attempts on first page (attempts 1 and 2)
-    assert len(sleep_log) >= 2
+    assert n >= 3  # Vähemalt 3 lehekülge (2 müük + 1 üür)
+    # Nõusolekuuhe magamised peaksid olema täpselt [1.0, 1.0] (enne kui bänner ilmub 3. katsel)
+    assert consent_sleep_log == [1.0, 1.0], f"Expected [1.0, 1.0], got {consent_sleep_log}"
+    # Bänner peaks klõpsitama
     assert ("click", "id:onetrust-accept-btn-handler") in d.log
+    # Verifitseeri salvestatud faili sisaldab pärast klõpsu sisu (rohkem kirjeid pärast klõpsu)
+    saved_files = sorted(tmp_path.iterdir())
+    # Esimene fail peaks olema müügi leht 100 ID-ga (pärast klõpsu) tänu page_source kutsele pärast klõpsu
+    first_file_content = saved_files[0].read_text()
+    assert "data-object-id=\"100\"" in first_file_content, "Post-click content not found in saved file"
 
 
 def test_no_banner_stops_retrying_after_3_pages(tmp_path):
-    """When no banner is found, collection finishes and retrying stops after 3 pages."""
+    """Verifitseeri 3-lehekülje katse piiri jõustamine, kui bänner ei ilmu kunagi.
+
+    Koos 4+ leheküljega kogutud ja bännerita:
+    - #onetrust-accept-btn-handler otsing juhtub täpselt 3 lehekülje × 5 katse = 15 korda
+    - Nõusolekuuhe magamised kokku täpselt 3 × 4 = 12 sekundit (4 und lehekülg kohta, 5. katse ei maga)
+    """
     u = browser.page_url
     pages = {
         u(1, "Hiiumaa", 0): [page(range(1, 51))],
         u(1, "Hiiumaa", 50): [page(range(51, 61))],
         u(1, "Hiiumaa", 100): [page(range(51, 61))],
+        u(1, "Harjumaa", 0): [page(range(101, 151))],  # 4. leht (ei tohiks uuesti proovida küpsiste bännerit)
         u(2, "Hiiumaa", 0): [page([1], "https://www.kv.ee/korterid-uur/hiiumaa")],
-        u(2, "Hiiumaa", 50): [page([1], "https://www.kv.ee/korterid-uur/hiiumaa")],
     }
-    d = FakeDriver(pages)  # No banner, no onetrust button
-    n = browser.collect(d, tmp_path, {2: "Hiiumaa"}, progress=lambda m: None, sleep=lambda s: None)
-    assert n == 3
-    # Verify that _accept_cookies was called (there will be get requests)
-    # and collection still completed successfully
+
+    onetrust_lookup_count = [0]  # Muutuv loendur
+    consent_sleep_log = []
+
+    class CountingDriver(FakeDriver):
+        def find_elements(self, by, value):
+            if by == "css selector":
+                if value == "#onetrust-accept-btn-handler":
+                    onetrust_lookup_count[0] += 1
+                    return []  # Ärgi bänner kunagi leitud
+                elif value == "button":
+                    return list(self.buttons)
+            return []
+
+    d = CountingDriver(pages)
+
+    def mock_sleep(s):
+        if s == 1.0:  # Nõusolekuuhe uurimise uni (mitte PAGE_DELAY_S, mis on 2.0)
+            consent_sleep_log.append(s)
+
+    n = browser.collect(d, tmp_path, {2: "Hiiumaa", 1: "Harjumaa"}, progress=lambda m: None, sleep=mock_sleep)
+    assert n == 4  # 3 Hiiumaa + 1 Harjumaa = 4 salvestatud lehekülge
+
+    # Verifitseeri täpselt 3 lehekülje kalori uuesti proovimised (3 × 5 katset = 15 otsingu)
+    assert onetrust_lookup_count[0] == 15, \
+        f"Expected 15 lookups (3 pages × 5 attempts), got {onetrust_lookup_count[0]}"
+
+    # Verifitseeri täpselt 12 nõusolekuuhe und (3 lehekülje × 4 und lehekülg kohta, 5. katse ei maga)
+    assert len(consent_sleep_log) == 12, \
+        f"Expected 12 consent sleeps (3 pages × 4 per page), got {len(consent_sleep_log)}"
+    assert consent_sleep_log == [1.0] * 12, \
+        f"Kõik nõusolekuuhe magamised peaksid olema 1.0 sekund, saime {consent_sleep_log}"

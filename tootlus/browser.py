@@ -33,7 +33,7 @@ def page_url(deal_type: int, county: str, start: int) -> str:
 
 def _accept_cookies(driver, sleep=time.sleep, attempts=5) -> bool:
     for attempt in range(attempts):
-        # Try to find OneTrust banner button by ID first
+        # Proovime esmalt leida OneTrust bänner nuppu ID järgi
         try:
             buttons = driver.find_elements("css selector", "#onetrust-accept-btn-handler")
             if buttons:
@@ -42,7 +42,7 @@ def _accept_cookies(driver, sleep=time.sleep, attempts=5) -> bool:
         except Exception:  # noqa: BLE001 - nupp võis kaduda; proovime järgmist
             pass
 
-        # Fall back to text-based button matching
+        # Langemise poole tekst-põhine nupu valik
         for button in driver.find_elements("css selector", "button"):
             try:
                 if _CONSENT.match((button.text or "").strip()):
@@ -51,7 +51,7 @@ def _accept_cookies(driver, sleep=time.sleep, attempts=5) -> bool:
             except Exception:  # noqa: BLE001 - nupp võis kaduda; proovime järgmist
                 continue
 
-        # If this wasn't the last attempt, sleep before retrying
+        # Kui see pole viimane katse, magame enne uuesti proovimist
         if attempt < attempts - 1:
             sleep(1.0)
 
@@ -79,7 +79,7 @@ def collect(driver, out_dir: Path, counties: dict[int, str], progress=print, sle
     out_dir.mkdir(parents=True, exist_ok=True)
     saved = 0
     consent_done = False
-    consent_retry_pages = 0  # Track pages where we try to accept cookies
+    consent_retry_pages = 0  # Jälgi lehekülgi, kus proovime küpsiseid aktsepteerida
     for county in counties.values():
         for deal in (config.DEAL_SALE, config.DEAL_RENT):
             seen: set[int] = set()
