@@ -5,17 +5,18 @@ import subprocess
 from datetime import date
 from pathlib import Path
 
-from . import analyze, config, scraper
+from . import analyze, config, geocode, model, scraper
 
 ROOT = Path(__file__).resolve().parent.parent
 RESULTS_PATH = ROOT / "docs" / "data" / "results.json"
+MODEL_PATH = ROOT / "docs" / "data" / "model.json"
 DB_PATH = ROOT / "data" / "kv.sqlite"
 
 DEAL_LABELS = {config.DEAL_SALE: "müük", config.DEAL_RENT: "üür"}
 
 
 def run_once(store, counties=config.COUNTIES, scrape=scraper.scrape_county, progress=print,
-             results_path=RESULTS_PATH) -> dict:
+             results_path=RESULTS_PATH, model_path=MODEL_PATH, geocoder=None) -> dict:
     run_id = store.start_run()
     ok: list[str] = []
     for county_id, name in counties.items():
@@ -36,12 +37,17 @@ def run_once(store, counties=config.COUNTIES, scrape=scraper.scrape_county, prog
         ok.append(name)
     store.finish_run(run_id, ok, complete=len(ok) == len(counties))
     progress(f"Kogumine valmis: {len(ok)}/{len(counties)} maakonda")
-    return analyze_only(store, results_path)
+    return analyze_only(store, results_path, model_path, geocoder, progress)
 
 
-def analyze_only(store, results_path=RESULTS_PATH) -> dict:
+def analyze_only(store, results_path=RESULTS_PATH, model_path=MODEL_PATH, geocoder=None, progress=print) -> dict:
     results = analyze.compute(store)
     analyze.write_results(results, results_path)
+    geocoder = geocoder or geocode.Geocoder(store.conn)
+    new = geocoder.geocode_missing(model.queries(store), progress=progress)
+    if new:
+        progress(f"Geokodeerimine: {new} uut aadressi")
+    model.write(model.compute(store, geocoder), model_path)
     return results
 
 

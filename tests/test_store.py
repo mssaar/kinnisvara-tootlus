@@ -70,3 +70,13 @@ def test_persists_to_file(tmp_path):
     s.finish_run(r, ["Harjumaa"], True)
     s.close()
     assert Store(str(path)).observations(r)[0]["price"] == 100000
+
+
+def test_listing_attrs():
+    s = Store(":memory:")
+    r = s.start_run()
+    s.save_listings(r, 1, "Harjumaa", [L(1, 100000)])
+    s.save_listings(r, 2, "Harjumaa", [L(1, 500)])
+    attrs = s.listing_attrs()
+    assert attrs[(1, 1)] == {"floor": 1, "build_year": 2000, "condition": "uus"}
+    assert set(attrs) == {(1, 1), (1, 2)}

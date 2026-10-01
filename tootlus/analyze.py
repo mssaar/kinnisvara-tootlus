@@ -25,7 +25,7 @@ def _in_range(value, bounds) -> bool:
     return value is not None and bounds[0] <= value <= bounds[1]
 
 
-def _clean(rows: list[dict]) -> list[dict]:
+def clean(rows: list[dict]) -> list[dict]:
     out = []
     for r in rows:
         bounds = config.SALE_M2_RANGE if r["deal_type"] == SALE else config.RENT_M2_RANGE
@@ -103,7 +103,7 @@ def _best_listings(rows: list[dict], stats: dict[Key, dict]) -> list[dict]:
 
 def compute(store, generated_at: str | None = None) -> dict:
     runs = store.runs()
-    rows_by_run = {run["id"]: _clean(store.observations(run["id"])) for run in runs}
+    rows_by_run = {run["id"]: clean(store.observations(run["id"])) for run in runs}
 
     all_rows = [r for rows in rows_by_run.values() for r in rows]
     for r in all_rows:

@@ -1,23 +1,28 @@
+import json
 import math
+from urllib.parse import parse_qs, urlparse
 
 import numpy as np
 import pytest
 
 from tootlus import model
+from tootlus.geocode import Geocoder
+from tootlus.parser import Listing
+from tootlus.store import Store
 
 CENTER = (59.4370, 24.7450)
 KM_LAT = 1 / 111.32
 KM_LON = 1 / (111.32 * math.cos(math.radians(59.43)))
 
 
-def synth(n, base, slope, seed, kind, undervalued_id=None, distance_effect=None):
+def synth(n, base, slope, seed, kind, undervalued_id=None, distance_effect=None, r_max=9.0):
     if distance_effect is None:
         distance_effect = lambda d: slope * d
     rng = np.random.default_rng(seed)
     rows = []
     conditions = ["heas korras", "uus", "renoveeritud", "keskmises seisukorras", None]
     for i in range(n):
-        r_km = rng.uniform(0.2, 9.0)
+        r_km = rng.uniform(0.2, r_max)
         ang = rng.uniform(0, 2 * math.pi)
         lat = CENTER[0] + r_km * math.sin(ang) * KM_LAT
         lon = CENTER[1] + r_km * math.cos(ang) * KM_LON
@@ -127,3 +132,73 @@ def test_rare_categories_do_not_break_fit():
 def test_too_few_rows():
     assert model.fit_run(synth(49, 3500, -0.08, seed=7, kind="sale"), synth(100, 16, -0.05, seed=8, kind="rent")) is None
     assert model.fit_run(synth(100, 3500, -0.08, seed=9, kind="sale"), synth(29, 16, -0.05, seed=10, kind="rent")) is None
+
+
+def _store_with(sale_rows, rent_rows, other_city=0):
+    s = Store(":memory:")
+    r = s.start_run("2026-10-01T00:00:00")
+    def to_listing(row, i):
+        q = f"Tn {i}"
+        return Listing(row["id"], row["url"], f"{q}, Kesklinn, Tallinn", "Kesklinn, Tallinn", row["rooms"],
+                       round(row["area_m2"], 1), round(row["price"]), row["floor"], row["build_year"], row["condition"])
+    sale = [to_listing(row, i) for i, row in enumerate(sale_rows)]
+    rent = [to_listing(row, 10000 + i) for i, row in enumerate(rent_rows)]
+    extra = [Listing(900000 + i, "u", f"Tn {i}, Narva", "Narva", 2, 50.0, 30000, 1, 1970, None) for i in range(other_city)]
+    s.save_listings(r, 1, "Harjumaa", sale + extra)
+    s.save_listings(r, 2, "Harjumaa", rent)
+    s.finish_run(r, ["Harjumaa"], True)
+    coords = {f"Tn {i}, Tallinn": row for i, row in enumerate(sale_rows)}
+    coords.update({f"Tn {10000 + i}, Tallinn": row for i, row in enumerate(rent_rows)})
+    def fetch(url):
+        q = parse_qs(urlparse(url).query)["address"][0]
+        row = coords.get(q)
+        if row is None:
+            return {"addresses": []}
+        return {"addresses": [{"viitepunkt_b": str(row["lat"]), "viitepunkt_l": str(row["lon"]), "asum": row["asum"] + " asum"}]}
+    g = Geocoder(s.conn, fetch=fetch, sleep=lambda x: None)
+    return s, g
+
+
+def test_compute_from_store(tmp_path):
+    s, g = _store_with(synth(300, 3500, -0.08, seed=11, kind="sale", r_max=6.5), synth(120, 16, -0.05, seed=12, kind="rent", r_max=6.5), other_city=3)
+    qs = model.queries(s)
+    assert "Tn 0, Tallinn" in qs and not any("Narva" in q for q in qs)
+    g.geocode_missing(qs, progress=lambda m: None)
+    res = model.compute(s, g, generated_at="t")
+    assert res["generated_at"] == "t"
+    assert len(res["runs"]) == 1
+    run = res["runs"][0]
+    assert run["n"] == {"sale": 300, "rent": 120, "not_geocoded": 0}
+    assert set(run) >= {"run_id", "started_at", "center", "center_offset_m", "effects", "r2", "n"}
+    assert res["median"]["effects"]["sale"]["3"] == run["effects"]["sale"]["3"]
+    assert res["curve"] and res["subdistricts"]
+    out = tmp_path / "data" / "model.json"
+    model.write(res, out)
+    assert json.loads(out.read_text(encoding="utf-8"))["generated_at"] == "t"
+
+
+def test_compute_too_little_data():
+    s, g = _store_with(synth(10, 3500, -0.08, seed=13, kind="sale", r_max=6.5), synth(10, 16, -0.05, seed=14, kind="rent", r_max=6.5))
+    g.geocode_missing(model.queries(s), progress=lambda m: None)
+    res = model.compute(s, g)
+    assert res["runs"] == [] and res["median"] is None
+    assert res["curve"] == [] and res["subdistricts"] == [] and res["listings"] == []
+
+
+def test_compute_counts_not_geocoded():
+    sale = synth(300, 3500, -0.08, seed=15, kind="sale", r_max=6.5)
+    s, g = _store_with(sale, synth(120, 16, -0.05, seed=16, kind="rent", r_max=6.5))
+    g.geocode_missing([q for q in model.queries(s) if q != "Tn 0, Tallinn"], progress=lambda m: None)
+    res = model.compute(s, g)
+    assert res["runs"][0]["n"]["not_geocoded"] == 1
+    assert res["runs"][0]["n"]["sale"] == 299
+
+
+def test_compute_treats_out_of_range_geocode_as_missing():
+    sale = synth(300, 3500, -0.08, seed=17, kind="sale", r_max=6.5)
+    sale[0] = dict(sale[0], lat=58.38, lon=26.72)  # Tartu
+    s, g = _store_with(sale, synth(120, 16, -0.05, seed=18, kind="rent", r_max=6.5))
+    g.geocode_missing(model.queries(s), progress=lambda m: None)
+    res = model.compute(s, g)
+    assert res["runs"][0]["n"]["not_geocoded"] == 1
+    assert res["runs"][0]["n"]["sale"] == 299

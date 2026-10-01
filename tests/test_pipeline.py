@@ -1,8 +1,13 @@
 import json
 
 from tootlus import pipeline, scraper
+from tootlus.geocode import Geocoder
 from tootlus.parser import Listing
 from tootlus.store import Store
+
+
+def no_geo(store):
+    return Geocoder(store.conn, fetch=lambda url: {"addresses": []}, sleep=lambda s: None)
 
 
 def listings(location, price, n, start):
@@ -20,7 +25,8 @@ def test_run_once_saves_and_writes_results(tmp_path):
     out = tmp_path / "results.json"
     messages = []
     s = Store(":memory:")
-    res = pipeline.run_once(s, counties={1: "Harjumaa"}, scrape=scrape, progress=messages.append, results_path=out)
+    res = pipeline.run_once(s, counties={1: "Harjumaa"}, scrape=scrape, progress=messages.append, results_path=out,
+                            model_path=tmp_path / "model.json", geocoder=no_geo(s))
     assert json.loads(out.read_text(encoding="utf-8"))["runs"][0]["counties_ok"] == ["Harjumaa"]
     assert any(r["level"] == "county" and r["enough"] for r in res["regions"])
     assert s.runs()[0]["complete"] is True
@@ -37,13 +43,21 @@ def test_failed_county_is_skipped_but_others_kept(tmp_path):
     s = Store(":memory:")
     messages = []
     res = pipeline.run_once(s, counties={1: "Harjumaa", 2: "Hiiumaa"}, scrape=scrape,
-                            progress=messages.append, results_path=tmp_path / "r.json")
+                            progress=messages.append, results_path=tmp_path / "r.json",
+                            model_path=tmp_path / "model.json", geocoder=no_geo(s))
     run = s.runs()[0]
     assert run["counties_ok"] == ["Harjumaa"] and run["complete"] is False
     assert not [r for r in res["regions"] if r["path"][0] == "Hiiumaa"]
     # Hiiumaa müügid ei tohi andmebaasi jõuda ilma üürideta
     assert all(o["county"] == "Harjumaa" for o in s.observations(run["id"]))
     assert any("VIGA" in m and "Hiiumaa" in m for m in messages)
+
+
+def test_analyze_only_writes_model_json(tmp_path):
+    s = Store(":memory:")
+    pipeline.analyze_only(s, tmp_path / "r.json", tmp_path / "m.json", no_geo(s), progress=lambda m: None)
+    data = json.loads((tmp_path / "m.json").read_text(encoding="utf-8"))
+    assert data["runs"] == [] and data["median"] is None
 
 
 def test_publish_runs_git_commands(tmp_path):

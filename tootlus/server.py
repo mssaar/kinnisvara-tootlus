@@ -98,7 +98,7 @@ def serve(port: int, counties: dict, browser: bool = False) -> None:
             if browser:
                 from .browser import collect_and_import
                 collect_and_import(store, counties, progress=progress)
-                pipeline.analyze_only(store)
+                pipeline.analyze_only(store, progress=progress)
             else:
                 pipeline.run_once(store, counties=counties, progress=progress)
         finally:

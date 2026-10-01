@@ -1,12 +1,16 @@
 """Tallinna hinna-kauguse mudel: keskpunkt, kauguse mõju ja alahinnatud objektid."""
 from __future__ import annotations
 
+import json
 import math
+from datetime import datetime
+from pathlib import Path
 from statistics import median
 
 import numpy as np
 
-from .analyze import room_group
+from . import analyze, regions
+from .geocode import street_query
 
 VABADUSE = (59.4339, 24.7445)
 KNOTS = (2.0, 5.0, 8.0)
@@ -65,7 +69,7 @@ def _with_distance(static: np.ndarray, dist) -> np.ndarray:
 def _static_columns(rows: list[dict]) -> np.ndarray:
     """Kaugusest sõltumatud veerud — arvutatakse üks kord, keskpunkti otsingus taaskasutatakse."""
     cols = []
-    rooms = [room_group(r["rooms"]) for r in rows]
+    rooms = [analyze.room_group(r["rooms"]) for r in rows]
     cols += [np.array([g == level for g in rooms], dtype=float) for level in ROOM_LEVELS]
     cols.append(np.log(np.array([r["area_m2"] for r in rows], dtype=float)))
     years = [_year_group(r.get("build_year")) for r in rows]
@@ -189,3 +193,66 @@ def fit_run(sale: list[dict], rent: list[dict]) -> dict | None:
         "n": {"sale": len(sale), "rent": len(rent)},
         "curve": curve, "subdistricts": subdistricts, "listings": listings,
     }
+
+
+def _tallinn_rows(store, run_id: int) -> list[dict]:
+    rows = analyze.clean(store.observations(run_id))
+    return [r for r in rows if regions.parse(r["location"] or "").city == "Tallinn"]
+
+
+def queries(store) -> set[str]:
+    out = set()
+    for run in store.runs():
+        for r in _tallinn_rows(store, run["id"]):
+            q = street_query(r["address"] or "", r["location"] or "")
+            if q:
+                out.add(q)
+    return out
+
+
+def _in_range(geo) -> bool:
+    return LAT_RANGE[0] <= geo.lat <= LAT_RANGE[1] and LON_RANGE[0] <= geo.lon <= LON_RANGE[1]
+
+
+def compute(store, geocoder, generated_at: str | None = None) -> dict:
+    attrs = store.listing_attrs()
+    run_results = []
+    for run in store.runs():
+        sale, rent, missing = [], [], 0
+        for r in _tallinn_rows(store, run["id"]):
+            q = street_query(r["address"] or "", r["location"] or "")
+            geo = geocoder.lookup(q) if q else None
+            if geo is None or not _in_range(geo):
+                missing += 1
+                continue
+            row = dict(r, lat=geo.lat, lon=geo.lon,
+                       asum=geo.asum or regions.parse(r["location"] or "").subdistrict,
+                       **attrs.get((r["id"], r["deal_type"]), {}))
+            (sale if r["deal_type"] == 1 else rent).append(row)
+        fitted = fit_run(sale, rent)
+        if fitted is not None:
+            fitted["n"]["not_geocoded"] = missing
+            run_results.append((run, fitted))
+
+    summaries = [{"run_id": run["id"], "started_at": run["started_at"],
+                  **{k: f[k] for k in ("center", "center_offset_m", "effects", "r2", "n")}}
+                 for run, f in run_results]
+    med = None
+    if summaries:
+        med = {
+            "center": {k: round(median(s["center"][k] for s in summaries), 6) for k in ("lat", "lon")},
+            "effects": {deal: {d: round(median(s["effects"][deal][d] for s in summaries), 5)
+                               for d in summaries[0]["effects"][deal]} for deal in ("sale", "rent")},
+        }
+    latest = run_results[-1][1] if run_results else {"curve": [], "subdistricts": [], "listings": []}
+    return {
+        "generated_at": generated_at or datetime.now().isoformat(timespec="seconds"),
+        "runs": summaries, "median": med,
+        "curve": latest["curve"], "subdistricts": latest["subdistricts"], "listings": latest["listings"],
+    }
+
+
+def write(result: dict, path: Path) -> None:
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(result, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")

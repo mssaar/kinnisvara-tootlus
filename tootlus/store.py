@@ -100,3 +100,8 @@ class Store:
 
     def close(self) -> None:
         self.conn.close()
+
+    def listing_attrs(self) -> dict[tuple[int, int], dict]:
+        rows = self.conn.execute("SELECT id, deal_type, floor, build_year, condition FROM listings").fetchall()
+        return {(r["id"], r["deal_type"]): {"floor": r["floor"], "build_year": r["build_year"],
+                                            "condition": r["condition"]} for r in rows}
