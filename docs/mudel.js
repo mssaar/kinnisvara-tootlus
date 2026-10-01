@@ -5,6 +5,7 @@ const pct = new Intl.NumberFormat("et-EE", { style: "percent", minimumFractionDi
 const pct2 = new Intl.NumberFormat("et-EE", { style: "percent", minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const eur = new Intl.NumberFormat("et-EE", { maximumFractionDigits: 0 });
 const num1 = new Intl.NumberFormat("et-EE", { maximumFractionDigits: 1 });
+const num2 = new Intl.NumberFormat("et-EE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const safeUrl = (u) => (/^https:\/\//.test(u || "") ? u : "#");
@@ -34,8 +35,8 @@ function renderStats() {
   $("stats").innerHTML = ["1", "3", "6"].map((km) => `
     <div class="stat"><span class="stat-k">${km} km kaugusel, +100 m</span>
       <span class="stat-v">müük ${eff("sale", km)}</span><span class="stat-v2">üür ${eff("rent", km)}</span></div>`).join("") +
-    `<div class="stat"><span class="stat-k">Mudeli R²</span><span class="stat-v">müük ${num1.format(last.r2.sale)}</span>
-      <span class="stat-v2">üür ${num1.format(last.r2.rent)}</span></div>`;
+    `<div class="stat"><span class="stat-k">Mudeli R²</span><span class="stat-v">müük ${num2.format(last.r2.sale)}</span>
+      <span class="stat-v2">üür ${num2.format(last.r2.rent)}</span></div>`;
 }
 
 function renderMap() {
