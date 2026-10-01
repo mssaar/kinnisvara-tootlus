@@ -10,7 +10,7 @@ from . import config, regions
 from .regions import Location
 
 SALE, RENT = config.DEAL_SALE, config.DEAL_RENT
-LISTING_LEVELS = ("subdistrict", "district", "city", "county")
+LISTING_LEVELS = ("subdistrict", "district", "city", "county_ex_center", "county")
 
 Key = tuple[str, tuple[str, ...], str]  # (tase, rada, toarühm)
 

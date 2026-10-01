@@ -148,3 +148,30 @@ def test_write_results(tmp_path):
 def test_empty_store():
     res = compute(Store(":memory:"))
     assert res["regions"] == [] and res["listings"] == [] and res["runs"] == []
+
+
+def test_best_listings_prefer_county_without_center_over_county():
+    s = Store(":memory:")
+    kula = "Vääna küla, Harku vald"
+    saue = "Saue linn, Saue vald"
+    # Tallinna üürid on kallid, maakonna mediaan seega Tallinna oma; väljaspool keskust odavam
+    run(s, "Harjumaa",
+        [mk(KR, 100000) for _ in range(5)] + [mk(kula, 20000)],
+        [mk(KR, 1000) for _ in range(6)] + [mk(saue, 250) for _ in range(5)])
+    village = next(l for l in compute(s)["listings"] if l["path"][-1] == "Vääna küla")
+    # Harku vallas üüre pole -> maakond v.a Tallinn: 5 üüri à 5 €/m²
+    assert village["rent_level"] == "county_ex_center"
+    assert village["rent_estimate"] == pytest.approx(250)
+    tln = next(l for l in compute(s)["listings"] if l["path"][-1] == "Kristiine City")
+    assert tln["rent_level"] == "subdistrict"
+
+
+def test_best_listings_center_listing_never_uses_county_without_center():
+    s = Store(":memory:")
+    other = "Tondi, Kristiine, Tallinn"
+    run(s, "Harjumaa",
+        [mk("Mustamäe, Tallinn", 100000)],
+        [mk("Saue linn, Saue vald", 250) for _ in range(5)] + [mk(other, 1000)])
+    (only,) = compute(s)["listings"]
+    # Tallinna kuulutus: linnas 1 üür (<5), maakond v.a keskus ei sobi -> maakond (6 üüri)
+    assert only["rent_level"] == "county"

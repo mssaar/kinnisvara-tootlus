@@ -2,10 +2,12 @@
 
 const state = {
   data: null, view: "regions", level: "district", exCenter: false, rooms: "all",
-  parent: "", query: "", showThin: true, sort: { key: "yield_median", dir: -1 },
+  parent: "", query: "", showThin: true, showCountyRent: false, sort: { key: "yield_median", dir: -1 },
 };
 
-const LEVEL_NAMES = { county: "maakond", county_ex_center: "maakond", city: "linn/vald",
+const COUNTY_RENT_LEVELS = new Set(["county", "county_ex_center"]);
+
+const LEVEL_NAMES = { county: "maakond", county_ex_center: "maakond v.a keskus", city: "linn/vald",
   district: "linnaosa", subdistrict: "asum" };
 
 const pct = new Intl.NumberFormat("et-EE", { style: "percent", minimumFractionDigits: 1, maximumFractionDigits: 1 });
@@ -55,6 +57,7 @@ function regionRows() {
 function listingRows() {
   return state.data.listings
     .filter((r) => state.rooms === "all" || roomGroup(r.rooms) === state.rooms)
+    .filter((r) => state.showCountyRent || !COUNTY_RENT_LEVELS.has(r.rent_level))
     .map((r) => ({ ...r, parent: r.path.join(" › ") }));
 }
 
@@ -104,6 +107,7 @@ function render() {
   document.querySelectorAll(".f-level, .f-excenter").forEach((el) => (el.hidden = state.view !== "regions"));
   $("ex-center").disabled = state.level !== "county";
   $("show-thin").parentElement.hidden = state.view !== "regions";
+  $("show-county-rent").parentElement.hidden = state.view !== "listings";
   renderParent();
 
   $("table").querySelector("thead").innerHTML = "<tr>" + cols.map((c) => {
@@ -120,7 +124,8 @@ function render() {
   $("empty").hidden = rows.length > 0;
   $("hint").textContent = state.view === "regions"
     ? `${rows.length} piirkonda · hallid read: alla 5 müügi- või üürikuulutuse`
-    : `${rows.length} müügikuulutust viimasest käivitusest · oodatav üür piirkonna üüri €/m² mediaanist`;
+    : `${rows.length} müügikuulutust viimasest käivitusest · oodatav üür piirkonna üüri €/m² mediaanist` +
+      (state.showCountyRent ? "" : " · maakonna keskmise üüriga kuulutused on peidetud");
 }
 
 function renderMeta() {
@@ -169,6 +174,7 @@ function bind() {
   $("parent").addEventListener("change", (e) => { state.parent = e.target.value; render(); });
   $("query").addEventListener("input", (e) => { state.query = e.target.value.trim(); render(); });
   $("show-thin").addEventListener("change", (e) => { state.showThin = e.target.checked; render(); });
+  $("show-county-rent").addEventListener("change", (e) => { state.showCountyRent = e.target.checked; render(); });
   $("table").querySelector("thead").addEventListener("click", (e) => {
     const key = e.target.closest("button")?.dataset.sort;
     if (!key) return;
