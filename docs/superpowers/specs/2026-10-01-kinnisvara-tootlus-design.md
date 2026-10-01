@@ -73,10 +73,17 @@ Ainult standardteek + `requests` + `beautifulsoup4` (parsimiseks). Testideks `py
 ### Andmemudel (SQLite)
 
 - `runs(id, started_at, finished_at, complete, counties_ok)`
-- `listings(id, deal_type, url, address, county, city, district, subdistrict, rooms, area_m2, floor, build_year,
-  condition, first_seen_run, last_seen_run)` — primaarvõti `(id, deal_type)`. Kui kuulutus tuleb uuesti, uuendatakse
-  `last_seen_run`; kui püsiinfo (nt pind) muutus, uuendatakse see väärtus, aga hind läheb alati uude vaatlusritta.
-- `observations(run_id, listing_id, deal_type, price, price_per_m2)` — üks rida iga kuulutuse kohta igas käivituses.
+- `listings(id, deal_type, url, address, location, county, rooms, area_m2, floor, build_year,
+  condition, first_seen_run, last_seen_run)` — primaarvõti `(id, deal_type)`. `location` on aadressi osa pärast
+  tänavat (nt "Kristiine City, Kristiine, Tallinn"). Kui kuulutus tuleb uuesti, uuendatakse `last_seen_run` ja
+  püsiinfo; hind, pind ja toad lähevad alati uude vaatlusritta, nii et vana info säilib.
+- `observations(run_id, listing_id, deal_type, price, area_m2, rooms, price_per_m2)` — üks rida iga kuulutuse kohta
+  igas käivituses.
+
+Piirkonnad (linn/linnaosa/asum) arvutatakse analüüsi ajal `location` väljast (`regions.py`), mitte ei salvestata —
+nii saab aadressi tõlgendust hiljem parandada ja kogu ajalugu arvutatakse uuesti.
+Aadressides esineb kasutaja sisestatud prügi ("0 € lepingutasu") ja ebaühtlast järjekorda; Tallinna linnaosad
+tuvastatakse teadaoleva nimekirja järgi ning puuduv linnaosa tuletatakse asumi järgi teistest kuulutustest.
 
 ### Arvutus (`analyze.py`)
 
