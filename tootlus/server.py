@@ -67,9 +67,18 @@ def _handler(state: RunState, runner):
                 return self._json(200, state.snapshot())
             return super().do_GET()
 
+        def _same_origin(self) -> bool:
+            # Kaitse teiste veebilehtede eest, mis võiksid kasutaja brauserist kogumise käivitada
+            port = self.server.server_address[1]
+            hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
+            origin = self.headers.get("Origin")
+            return self.headers.get("Host") in hosts and (origin is None or origin in {f"http://{h}" for h in hosts})
+
         def do_POST(self):
             if self.path.split("?")[0] != "/api/run":
                 return self._json(404, {"error": "not found"})
+            if not self._same_origin():
+                return self._json(403, {"error": "keelatud"})
             if state.start(runner):
                 return self._json(202, {"started": True})
             return self._json(409, {"started": False, "error": "kogumine juba käib"})

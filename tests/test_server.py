@@ -31,8 +31,8 @@ def get_json(url):
         return json.loads(r.read())
 
 
-def post(url):
-    req = urllib.request.Request(url, data=b"", method="POST")
+def post(url, headers=None):
+    req = urllib.request.Request(url, data=b"", method="POST", headers=headers or {})
     try:
         with urllib.request.urlopen(req) as r:
             return r.status
@@ -77,3 +77,24 @@ def test_runner_error_is_reported():
     assert state.start(boom)
     assert wait_until(lambda: not state.snapshot()["running"])
     assert "katki" in state.snapshot()["error"]
+
+
+def test_run_rejects_foreign_origin(server):
+    base, _, state = server
+    assert post(base + "/api/run", {"Origin": "https://kuri.example"}) == 403
+    assert post(base + "/api/run", {"Origin": "null"}) == 403
+    assert state.snapshot()["running"] is False and state.snapshot()["finished_at"] is None
+
+
+def test_run_rejects_foreign_host(server):
+    base, _, state = server
+    port = base.rsplit(":", 1)[1]
+    assert post(base + "/api/run", {"Host": f"kuri.example:{port}"}) == 403
+    assert post(base + "/api/run", {"Host": "127.0.0.1:1"}) == 403
+    assert state.snapshot()["running"] is False
+
+
+def test_run_accepts_own_origin(server):
+    base, _, _ = server
+    port = base.rsplit(":", 1)[1]
+    assert post(base + "/api/run", {"Origin": f"http://localhost:{port}", "Host": f"localhost:{port}"}) == 202
