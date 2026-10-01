@@ -76,7 +76,8 @@ class Geocoder:
             except (urllib.error.URLError, OSError, ValueError) as exc:
                 progress(f"Geokodeerimine: {query}: viga ({exc}), proovin järgmisel korral uuesti")
             else:
-                self._store(query, (data or {}).get("addresses") or [])
+                addresses = (data.get("addresses") if isinstance(data, dict) else None) or []
+                self._store(query, addresses)
             if i % 100 == 0:
                 progress(f"Geokodeerimine: {i}/{len(todo)}")
             self.sleep(REQUEST_DELAY_S)
@@ -90,6 +91,7 @@ class Geocoder:
         except (TypeError, KeyError, ValueError):
             self.conn.execute("INSERT OR REPLACE INTO geocodes VALUES (?, NULL, NULL, NULL, 0, ?)", (query, now))
         else:
-            asum = (first.get("asum") or "").removesuffix(" asum").strip() or None
+            raw_asum = (first.get("asum") or "").split(",")[0].removesuffix(" asum").strip()
+            asum = raw_asum or None
             self.conn.execute("INSERT OR REPLACE INTO geocodes VALUES (?, ?, ?, ?, 1, ?)", (query, lat, lon, asum, now))
         self.conn.commit()

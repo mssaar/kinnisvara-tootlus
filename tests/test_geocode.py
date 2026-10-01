@@ -57,3 +57,19 @@ def test_missing_asum():
                  sleep=lambda s: None)
     g.geocode_missing(["X 1, Tallinn"], progress=lambda m: None)
     assert g.lookup("X 1, Tallinn") == Geo(59.4, 24.7, None)
+
+
+def test_asum_with_comma_and_suffix():
+    g = Geocoder(sqlite3.connect(":memory:"),
+                 fetch=lambda url: {"addresses": [{"viitepunkt_b": "59.5", "viitepunkt_l": "24.8", "asum": "Kalamaja asum, Volta kvartal"}]},
+                 sleep=lambda s: None)
+    g.geocode_missing(["Krulli 10, Tallinn"], progress=lambda m: None)
+    assert g.lookup("Krulli 10, Tallinn") == Geo(59.5, 24.8, "Kalamaja")
+
+
+def test_non_dict_response_treated_as_not_found():
+    g = Geocoder(sqlite3.connect(":memory:"),
+                 fetch=lambda url: ["not", "a", "dict"],
+                 sleep=lambda s: None)
+    g.geocode_missing(["Some Address, Tallinn"], progress=lambda m: None)
+    assert g.lookup("Some Address, Tallinn") is None
