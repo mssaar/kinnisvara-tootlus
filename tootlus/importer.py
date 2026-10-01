@@ -7,6 +7,7 @@ from urllib.parse import urlparse
 from bs4 import BeautifulSoup
 
 from . import config
+from .browser import MARKER_SUFFIX
 from .parser import parse_page
 
 DEALS = {"korterid-muuk": config.DEAL_SALE, "korterid-uur": config.DEAL_RENT}
@@ -52,6 +53,13 @@ def import_dir(store, directory: Path, progress=print) -> list[str]:
         progress(f"{path.name}: {county} {DEAL_LABELS[deal]}, {len(listings)} kuulutust")
 
     counties = sorted({county for county, _ in collected})
+    # Brauserikogumise kaustas on lõpetatud maakondadel märgifail; käsitsi salvestatud lehtedel mitte
+    markers = {p.name[: -len(MARKER_SUFFIX)] for p in Path(directory).glob(f"*{MARKER_SUFFIX}")}
+    if markers:
+        unfinished = [c for c in counties if config.county_slug(c) not in markers]
+        for county in unfinished:
+            progress(f"{county}: kogumine jäi pooleli, jäetakse välja")
+        counties = [c for c in counties if c not in unfinished]
     ok = []
     for county in counties:
         missing = [DEAL_LABELS[d] for d in (config.DEAL_SALE, config.DEAL_RENT) if (county, d) not in collected]

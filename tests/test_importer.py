@@ -52,3 +52,22 @@ def test_import_county_without_rent_is_skipped(tmp_path):
     assert import_dir(s, tmp_path, progress=messages.append) == []
     assert s.runs() == []
     assert any("Harjumaa" in m and "üür" in m for m in messages)
+
+
+def test_import_with_markers_only_imports_finished_counties(tmp_path):
+    shutil.copy(FIX / "saved_sale.html", tmp_path / "harjumaa-muuk-00000.html")
+    shutil.copy(FIX / "saved_rent.html", tmp_path / "harjumaa-uur-00000.html")
+    (tmp_path / "hiiumaa.valmis").write_text("", encoding="utf-8")
+    messages = []
+    s = Store(":memory:")
+    assert import_dir(s, tmp_path, progress=messages.append) == []
+    assert s.runs() == []
+    assert any("Harjumaa" in m and "pooleli, jäetakse välja" in m for m in messages)
+
+
+def test_import_with_marker_imports_county(tmp_path):
+    shutil.copy(FIX / "saved_sale.html", tmp_path / "harjumaa-muuk-00000.html")
+    shutil.copy(FIX / "saved_rent.html", tmp_path / "harjumaa-uur-00000.html")
+    (tmp_path / "harjumaa.valmis").write_text("", encoding="utf-8")
+    s = Store(":memory:")
+    assert import_dir(s, tmp_path, progress=lambda m: None) == ["Harjumaa"]

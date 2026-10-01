@@ -74,7 +74,7 @@ def test_collect_pages_until_no_new_ids(tmp_path):
     n = browser.collect(d, tmp_path, {2: "Hiiumaa"}, progress=lambda m: None, sleep=lambda s: None)
     assert n == 3
     assert sorted(p.name for p in tmp_path.iterdir()) == [
-        "hiiumaa-muuk-00000.html", "hiiumaa-muuk-00050.html", "hiiumaa-uur-00000.html"]
+        "hiiumaa-muuk-00000.html", "hiiumaa-muuk-00050.html", "hiiumaa-uur-00000.html", "hiiumaa.valmis"]
     assert ("click", "Nõustun") in d.log
 
 
@@ -241,3 +241,85 @@ def test_no_banner_stops_retrying_after_3_pages(tmp_path):
         f"Expected 12 consent sleeps (3 pages × 4 per page), got {len(consent_sleep_log)}"
     assert consent_sleep_log == [1.0] * 12, \
         f"Kõik nõusolekuuhe magamised peaksid olema 1.0 sekund, saime {consent_sleep_log}"
+
+
+class WebDriverException(Exception):
+    """Sama nimega klass nagu seleniumis (selenium.common.exceptions.WebDriverException)."""
+
+
+class NoSuchWindowException(WebDriverException):
+    pass
+
+
+def two_county_pages():
+    u = browser.page_url
+    hii_uur = "https://www.kv.ee/korterid-uur/hiiumaa"
+    return {
+        u(1, "Hiiumaa", 0): [page(range(1, 6))], u(1, "Hiiumaa", 50): [page(range(1, 6))],
+        u(2, "Hiiumaa", 0): [page(range(11, 16), hii_uur)], u(2, "Hiiumaa", 50): [page(range(11, 16), hii_uur)],
+        u(1, "Harjumaa", 0): [page(range(21, 26), "https://www.kv.ee/korterid-muuk/harjumaa")],
+    }
+
+
+class InterruptingDriver(FakeDriver):
+    """Kasutaja sulgeb akna: Harjumaa müügi teise lehe avamine kukub."""
+
+    def __init__(self, pages, error):
+        super().__init__(pages)
+        self.error = error
+        self.quit_called = False
+
+    def get(self, url):
+        if url == browser.page_url(1, "Harjumaa", 50):
+            raise self.error
+        super().get(url)
+
+    def quit(self):
+        self.quit_called = True
+
+
+def test_collect_writes_marker_after_both_deals(tmp_path):
+    d = InterruptingDriver(two_county_pages(), NoSuchWindowException("aken suletud"))
+    with pytest.raises(NoSuchWindowException):
+        browser.collect(d, tmp_path, {2: "Hiiumaa", 1: "Harjumaa"}, progress=lambda m: None, sleep=lambda s: None)
+    assert sorted(p.name for p in tmp_path.glob("*.valmis")) == ["hiiumaa.valmis"]
+    assert (tmp_path / "harjumaa-muuk-00000.html").exists()
+
+
+@pytest.mark.parametrize("error", [NoSuchWindowException("aken suletud"), browser.ChallengeTimeout("5 min")])
+def test_interrupted_collection_imports_completed_counties(tmp_path, monkeypatch, error):
+    from tootlus.store import Store
+    d = InterruptingDriver(two_county_pages(), error)
+    monkeypatch.setattr(browser, "make_driver", lambda: d)
+    msgs = []
+    s = Store(":memory:")
+    ok = browser.collect_and_import(s, {2: "Hiiumaa", 1: "Harjumaa"}, progress=msgs.append,
+                                    out_root=tmp_path, sleep=lambda s: None)
+    assert ok == ["Hiiumaa"]
+    assert s.runs()[0]["counties_ok"] == ["Hiiumaa"]
+    assert d.quit_called
+    assert any("katkes" in m for m in msgs)
+    assert any("Harjumaa" in m and "pooleli" in m for m in msgs)
+
+
+def test_collect_and_import_uses_new_folder_per_run(tmp_path, monkeypatch):
+    import re
+    from tootlus.store import Store
+    stale = tmp_path / "vana"
+    stale.mkdir()
+    monkeypatch.setattr(browser, "make_driver", lambda: InterruptingDriver(two_county_pages(), RuntimeError()))
+    browser.collect_and_import(Store(":memory:"), {2: "Hiiumaa"}, progress=lambda m: None,
+                               out_root=tmp_path, sleep=lambda s: None)
+    (run_dir,) = [p for p in tmp_path.iterdir() if p != stale]
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}_\d{6}", run_dir.name)
+    assert (run_dir / "hiiumaa.valmis").exists()
+
+
+def test_unexpected_error_is_not_swallowed(tmp_path, monkeypatch):
+    from tootlus.store import Store
+    d = InterruptingDriver(two_county_pages(), KeyError("programmiviga"))
+    monkeypatch.setattr(browser, "make_driver", lambda: d)
+    with pytest.raises(KeyError):
+        browser.collect_and_import(Store(":memory:"), {2: "Hiiumaa", 1: "Harjumaa"}, progress=lambda m: None,
+                                   out_root=tmp_path, sleep=lambda s: None)
+    assert d.quit_called

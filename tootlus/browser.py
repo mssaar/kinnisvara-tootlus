@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import re
 import time
-from datetime import date
+from datetime import datetime
 from pathlib import Path
 
 from . import config
@@ -21,6 +21,9 @@ CHALLENGE_TIMEOUT_S = 300
 POLL_S = 2.0
 _CHALLENGE = re.compile(r"Just a moment|challenge-platform|cf-chl|Checking your browser", re.I)
 _CONSENT = re.compile(r"^(nõustun|nõustu|luba kõik|accept all|accept|nõustun kõigiga)$", re.I)
+
+
+MARKER_SUFFIX = ".valmis"
 
 
 class ChallengeTimeout(Exception):
@@ -101,6 +104,8 @@ def collect(driver, out_dir: Path, counties: dict[int, str], progress=print, sle
                 saved += 1
                 progress(f"{county} {DEAL_LABELS[deal]}: leht {page + 1}, {len(seen)} kuulutust")
                 sleep(PAGE_DELAY_S)
+        # Märk: maakonna müük ja üür on lõpuni kogutud (import võtab ainult märgiga maakonnad)
+        (out_dir / f"{config.county_slug(county)}{MARKER_SUFFIX}").write_text("", encoding="utf-8")
     return saved
 
 
@@ -109,13 +114,29 @@ def make_driver():
     return webdriver.Edge()
 
 
-def collect_and_import(store, counties: dict[int, str], progress=print, out_root: Path | None = None) -> list[str]:
+def _is_interruption(exc: Exception) -> bool:
+    # seleniumi WebDriverException (ka alamklassid, nt suletud aken) tuvastatakse nime järgi,
+    # et testid ja see moodul ei vajaks seleniumi sisemust
+    return isinstance(exc, ChallengeTimeout) or any(c.__name__ == "WebDriverException" for c in type(exc).__mro__)
+
+
+def collect_and_import(store, counties: dict[int, str], progress=print, out_root: Path | None = None,
+                       sleep=time.sleep, clock=time.monotonic) -> list[str]:
     from .importer import import_dir
     from .pipeline import ROOT
-    out_dir = Path(out_root or ROOT / "data" / "lehed") / date.today().isoformat()
+    out_dir = Path(out_root or ROOT / "data" / "lehed") / datetime.now().strftime("%Y-%m-%d_%H%M%S")
+    out_dir.mkdir(parents=True, exist_ok=True)
     driver = make_driver()
     try:
-        collect(driver, out_dir, counties, progress=progress)
+        collect(driver, out_dir, counties, progress=progress, sleep=sleep, clock=clock)
+    except Exception as exc:  # noqa: BLE001 - katkestus: impordime lõpetatud maakonnad
+        if not _is_interruption(exc):
+            raise
+        progress(f"Kogumine katkes ({type(exc).__name__}: {exc}); impordin lõpuni kogutud maakonnad. "
+                 "Ülejäänud maakondade jaoks käivita kogumine hiljem uuesti.")
     finally:
-        driver.quit()
+        try:
+            driver.quit()
+        except Exception:  # noqa: BLE001 - aken võis olla juba suletud
+            pass
     return import_dir(store, out_dir, progress=progress)
