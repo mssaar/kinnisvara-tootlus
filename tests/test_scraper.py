@@ -1,3 +1,5 @@
+import subprocess
+
 import pytest
 
 from tootlus import scraper
@@ -49,34 +51,37 @@ def test_fetch_error_propagates():
         scraper.scrape_county(1, 1, fetch=fetch, sleep=lambda s: None)
 
 
-class FakeResponse:
-    def __init__(self, status, body=b""):
-        self.status_code = status
-        self.content = body
+def completed(returncode, body=b"", status=200):
+    out = body + b"\n" + str(status).encode() if returncode == 0 else b""
+    return subprocess.CompletedProcess(["curl"], returncode, stdout=out, stderr=b"err")
 
 
-class FakeSession:
-    def __init__(self, responses):
-        self.responses = list(responses)
+class FakeRun:
+    def __init__(self, results):
+        self.results = list(results)
         self.calls = 0
 
-    def get(self, url, headers=None, timeout=None):
+    def __call__(self, args, capture_output=True):
         self.calls += 1
-        r = self.responses.pop(0)
+        r = self.results.pop(0)
         if isinstance(r, Exception):
             raise r
         return r
 
 
 def test_http_get_retries_then_succeeds():
-    import requests
-
-    s = FakeSession([requests.ConnectionError("x"), FakeResponse(503), FakeResponse(200, "ü".encode())])
-    assert scraper.http_get("u", session=s, sleep=lambda t: None) == "ü"
-    assert s.calls == 3
+    run = FakeRun([completed(6), completed(0, status=503), completed(0, "ü".encode())])
+    assert scraper.http_get("u", run=run, sleep=lambda t: None) == "ü"
+    assert run.calls == 3
 
 
 def test_http_get_gives_up():
-    s = FakeSession([FakeResponse(500)] * 3)
+    run = FakeRun([completed(0, status=500)] * 3)
     with pytest.raises(scraper.FetchError):
-        scraper.http_get("u", session=s, sleep=lambda t: None)
+        scraper.http_get("u", run=run, sleep=lambda t: None)
+
+
+def test_http_get_curl_missing():
+    run = FakeRun([FileNotFoundError("curl")] * 3)
+    with pytest.raises(scraper.FetchError):
+        scraper.http_get("u", run=run, sleep=lambda t: None)

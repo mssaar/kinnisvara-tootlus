@@ -1,9 +1,8 @@
 """kv.ee otsingutulemuste pärimine maakonna kaupa."""
 from __future__ import annotations
 
+import subprocess
 import time
-
-import requests
 
 from . import config
 from .parser import Listing, parse_page
@@ -21,18 +20,25 @@ def search_url(deal_type: int, county_id: int, start: int) -> str:
     return f"{config.BASE_URL}?deal_type={deal_type}&county={county_id}&start={start}"
 
 
-def http_get(url: str, session=None, sleep=time.sleep) -> str:
-    session = session or requests
-    headers = {"User-Agent": config.USER_AGENT, "Accept-Language": "et-EE,et;q=0.9"}
+def http_get(url: str, run=subprocess.run, sleep=time.sleep) -> str:
+    cmd = [
+        "curl", "-sS", "-L", "--compressed", "--max-time", "30",
+        "-A", config.USER_AGENT, "-H", "Accept-Language: et-EE,et;q=0.9",
+        "-w", "\n%{http_code}", url,
+    ]
     last_error = ""
     for attempt in range(config.MAX_RETRIES):
         try:
-            response = session.get(url, headers=headers, timeout=30)
-            if response.status_code == 200:
-                return response.content.decode("utf-8", errors="replace")
-            last_error = f"HTTP {response.status_code}"
-        except requests.RequestException as exc:
-            last_error = str(exc)
+            result = run(cmd, capture_output=True)
+            if result.returncode != 0:
+                last_error = f"curl exit {result.returncode}: {result.stderr.decode('utf-8', errors='replace').strip()}"
+            else:
+                body, _, status = result.stdout.rpartition(b"\n")
+                if status.strip() == b"200":
+                    return body.decode("utf-8", errors="replace")
+                last_error = f"HTTP {status.strip().decode('ascii', errors='replace')}"
+        except OSError as exc:
+            last_error = f"curl ei käivitu: {exc}"
         if attempt < config.MAX_RETRIES - 1:
             sleep(2 ** attempt * 2)
     raise FetchError(f"{url}: {last_error}")
