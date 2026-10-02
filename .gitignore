@@ -4,3 +4,4 @@ __pycache__/
 .venv/
 data/lehed/
 data/viimane_kaivitus.json
+data/logid/

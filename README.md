@@ -68,3 +68,12 @@ Veebileht asub kaustas `docs/` (GitHub Pages: Settings → Pages → Branch `mai
 ```bash
 python -m pytest
 ```
+
+## Automaatne uuendus kord kvartalis
+
+`kvartali_uuendus.cmd` teeb `git pull` ja `python run.py --publish` ning kirjutab logi kausta `data/logid/`.
+Windowsi Task Scheduleris on ülesanne **"Kinnisvara tootlus - kvartali uuendus"**: 1. jaanuar, aprill, juuli ja
+oktoober kell 10:00; kui arvuti oli sel ajal kinni, käivitub see esimesel võimalusel pärast sisselogimist.
+Arvuti peab olema sees ja kasutaja sisse logitud (Edge'i aken peab saama avaneda). Käsitsi proovimiseks:
+`schtasks /Run /TN "Kinnisvara tootlus - kvartali uuendus"`; eemaldamiseks
+`schtasks /Delete /TN "Kinnisvara tootlus - kvartali uuendus" /F`.
