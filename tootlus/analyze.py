@@ -78,7 +78,7 @@ def _round(value, digits):
     return round(value, digits) if value is not None else None
 
 
-def _best_listings(rows: list[dict], stats: dict[Key, dict]) -> list[dict]:
+def _best_listings(rows: list[dict], stats: dict[Key, dict], attrs: dict) -> list[dict]:
     out = []
     for r in rows:
         group = room_group(r["rooms"])
@@ -95,6 +95,7 @@ def _best_listings(rows: list[dict], stats: dict[Key, dict]) -> list[dict]:
                     "area_m2": r["area_m2"], "price": r["price"],
                     "rent_estimate": round(rent, 2), "yield": round(rent * 12 / r["price"], 4),
                     "rent_level": level,
+                    "condition": attrs.get((r["id"], r["deal_type"]), {}).get("condition"),
                 })
                 break
     out.sort(key=lambda x: x["yield"], reverse=True)
@@ -136,7 +137,7 @@ def compute(store, generated_at: str | None = None) -> dict:
     listings = []
     if run_ids:
         last = run_ids[-1]
-        listings = _best_listings(rows_by_run[last], stats_by_run[last])
+        listings = _best_listings(rows_by_run[last], stats_by_run[last], store.listing_attrs())
 
     return {
         "generated_at": generated_at or datetime.now().isoformat(timespec="seconds"),

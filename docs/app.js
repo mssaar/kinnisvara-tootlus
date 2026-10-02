@@ -1,8 +1,30 @@
 "use strict";
 
+// Seisukorra rühmad filtri jaoks (fikseeritud järjekord); null = teadmata
+const COND_GROUPS = [
+  { id: "uus", label: "Uus / valmis", values: ["uus", "valmis", "alustamata ehitus"] },
+  { id: "reno", label: "Renoveeritud", values: ["renoveeritud", "san. remont tehtud"] },
+  { id: "hea", label: "Heas korras", values: ["heas korras"] },
+  { id: "kesk", label: "Keskmine", values: ["keskmises seisukorras"] },
+  { id: "remont", label: "Vajab remonti", values: ["vajab san. remonti", "vajab renoveerimist"] },
+  { id: "teadmata", label: "Teadmata", values: [null] },
+];
+const condGroupId = (c) => (COND_GROUPS.find((g) => g.values.includes(c ?? null)) || COND_GROUPS[COND_GROUPS.length - 1]).id;
+const condText = (r) => (r.condition ? esc(r.condition) : "–");
+
+// Märkeruudud igale rühmale koos kuulutuste arvuga praegustest andmetest; checked = valitud rühmade id-d
+function renderCondChecks(box, listings, checked) {
+  const counts = {};
+  listings.forEach((l) => { const id = condGroupId(l.condition); counts[id] = (counts[id] || 0) + 1; });
+  box.innerHTML = COND_GROUPS.map((g) =>
+    `<label class="check"><input type="checkbox" value="${g.id}"${checked.includes(g.id) ? " checked" : ""}> ${esc(g.label)} <span class="n">(${counts[g.id] || 0})</span></label>`
+  ).join("");
+}
+const checkedConds = (box) => [...box.querySelectorAll("input:checked")].map((i) => i.value);
+
 const state = {
   data: null, view: "regions", level: "district", exCenter: false, rooms: "all",
-  parent: "", query: "", showThin: true, showCountyRent: false, sort: { key: "yield_median", dir: -1 },
+  parent: "", query: "", conds: COND_GROUPS.map((g) => g.id), showThin: true, showCountyRent: false, sort: { key: "yield_median", dir: -1 },
 };
 
 const COUNTY_RENT_LEVELS = new Set(["county", "county_ex_center"]);
@@ -53,6 +75,7 @@ const COLUMNS = {
     { key: "price", label: "Hind €", num: true, cell: (r) => fmt(eur, r.price) },
     { key: "rent_estimate", label: "Oodatav üür €", num: true, cell: (r) => fmt(eur, r.rent_estimate) },
     { key: "yield", label: "Tootlus", num: true, cell: (r) => fmt(pct, r.yield), cls: "strong" },
+    { key: "condition", label: "Seisukord", cell: condText },
     { key: "rent_level", label: "Üür tasemelt", cell: (r) => LEVEL_NAMES[r.rent_level] || r.rent_level, cls: "muted" },
   ],
 };
@@ -75,6 +98,7 @@ function regionRows() {
 function listingRows() {
   return state.data.listings
     .filter((r) => state.rooms === "all" || roomGroup(r.rooms) === state.rooms)
+    .filter((r) => state.conds.includes(condGroupId(r.condition)))
     .filter((r) => state.showCountyRent || !COUNTY_RENT_LEVELS.has(r.rent_level))
     .map((r) => ({ ...r, parent: r.path.join(" › ") }));
 }
@@ -126,6 +150,7 @@ function render() {
   $("ex-center").disabled = state.level !== "county";
   $("show-thin").parentElement.hidden = state.view !== "regions";
   $("show-county-rent").parentElement.hidden = state.view !== "listings";
+  $("f-cond").hidden = state.view !== "listings";
   renderParent();
 
   $("table").querySelector("thead").innerHTML = "<tr>" + cols.map((c) => {
@@ -159,6 +184,7 @@ async function loadData() {
   const res = await fetch("data/results.json", { cache: "no-store" });
   state.data = res.ok ? await res.json() : { runs: [], regions: [], listings: [] };
   renderMeta();
+  renderCondChecks($("f-cond-checks"), state.data.listings, state.conds);
   render();
 }
 
@@ -234,6 +260,7 @@ function bind() {
   $("parent").addEventListener("change", (e) => { state.parent = e.target.value; render(); });
   $("query").addEventListener("input", (e) => { state.query = e.target.value.trim(); render(); });
   $("show-thin").addEventListener("change", (e) => { state.showThin = e.target.checked; render(); });
+  $("f-cond-checks").addEventListener("change", () => { state.conds = checkedConds($("f-cond-checks")); render(); });
   $("show-county-rent").addEventListener("change", (e) => { state.showCountyRent = e.target.checked; render(); });
   $("table").querySelector("thead").addEventListener("click", (e) => {
     const key = e.target.closest("button")?.dataset.sort;

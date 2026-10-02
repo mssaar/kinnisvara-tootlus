@@ -175,3 +175,14 @@ def test_best_listings_center_listing_never_uses_county_without_center():
     (only,) = compute(s)["listings"]
     # Tallinna kuulutus: linnas 1 üür (<5), maakond v.a keskus ei sobi -> maakond (6 üüri)
     assert only["rent_level"] == "county"
+
+
+def test_best_listings_carry_condition():
+    s = Store(":memory:")
+    sales = [mk(KR, 100000) for _ in range(5)]
+    rents = [mk(KR, 500) for _ in range(5)]
+    sales[0] = Listing(sales[0].id, sales[0].url, sales[0].address, KR, 2, 50.0, 100000, 1, 2000, "renoveeritud")
+    run(s, "Harjumaa", sales, rents)
+    by_id = {l["id"]: l for l in compute(s)["listings"]}
+    assert by_id[sales[0].id]["condition"] == "renoveeritud"
+    assert by_id[sales[1].id]["condition"] is None

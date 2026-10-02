@@ -86,6 +86,28 @@ function computeScales() {
 const roomValue = (n) => (n == null ? null : Math.max(1, Math.min(ROOMS_MAX, n)));
 const roomsText = (v) => (v >= ROOMS_MAX ? `${ROOMS_MAX}+` : String(v));
 
+// Seisukorra rühmad filtri jaoks (fikseeritud järjekord); null = teadmata
+const COND_GROUPS = [
+  { id: "uus", label: "Uus / valmis", values: ["uus", "valmis", "alustamata ehitus"] },
+  { id: "reno", label: "Renoveeritud", values: ["renoveeritud", "san. remont tehtud"] },
+  { id: "hea", label: "Heas korras", values: ["heas korras"] },
+  { id: "kesk", label: "Keskmine", values: ["keskmises seisukorras"] },
+  { id: "remont", label: "Vajab remonti", values: ["vajab san. remonti", "vajab renoveerimist"] },
+  { id: "teadmata", label: "Teadmata", values: [null] },
+];
+const condGroupId = (c) => (COND_GROUPS.find((g) => g.values.includes(c ?? null)) || COND_GROUPS[COND_GROUPS.length - 1]).id;
+const condText = (r) => (r.condition ? esc(r.condition) : "–");
+
+// Märkeruudud igale rühmale koos kuulutuste arvuga praegustest andmetest; checked = valitud rühmade id-d
+function renderCondChecks(box, listings, checked) {
+  const counts = {};
+  listings.forEach((l) => { const id = condGroupId(l.condition); counts[id] = (counts[id] || 0) + 1; });
+  box.innerHTML = COND_GROUPS.map((g) =>
+    `<label class="check"><input type="checkbox" value="${g.id}"${checked.includes(g.id) ? " checked" : ""}> ${esc(g.label)} <span class="n">(${counts[g.id] || 0})</span></label>`
+  ).join("");
+}
+const checkedConds = (box) => [...box.querySelectorAll("input:checked")].map((i) => i.value);
+
 function computeBounds() {
   const L = state.data.listings;
   const prices = L.map((l) => l.price).filter(Number.isFinite);
@@ -103,11 +125,13 @@ function computeBounds() {
 
 function defaultFilter() {
   const b = state.bounds;
-  return { rooms: [...b.rooms], price: [...b.price], floor: [...b.floor], notFirst: false, notLast: false, asum: "" };
+  return { rooms: [...b.rooms], price: [...b.price], floor: [...b.floor], notFirst: false, notLast: false, asum: "",
+    conds: COND_GROUPS.map((g) => g.id) };
 }
 
 function passes(l) {
   const f = state.filter, b = state.bounds;
+  if (!f.conds.includes(condGroupId(l.condition))) return false;
   const r = roomValue(l.rooms);
   if (r == null ? (f.rooms[0] !== b.rooms[0] || f.rooms[1] !== b.rooms[1]) : (r < f.rooms[0] || r > f.rooms[1])) return false;
   if (l.price < f.price[0] || l.price > f.price[1]) return false;
@@ -181,6 +205,8 @@ function initFilters() {
     : "Teadmata korrusega kuulutused jäävad alati nähtavale.";
   $("asum").innerHTML = `<option value="">Kõik asumid</option>` +
     state.bounds.asums.map((n) => `<option value="${esc(n)}">${esc(n)}</option>`).join("");
+  renderCondChecks($("f-cond-checks"), state.data.listings, state.filter.conds);
+  $("f-cond-checks").addEventListener("change", () => { state.filter.conds = checkedConds($("f-cond-checks")); applyFilters(); });
   $("not-first").addEventListener("change", (e) => { state.filter.notFirst = e.target.checked; applyFilters(); });
   $("not-last").addEventListener("change", (e) => { state.filter.notLast = e.target.checked; applyFilters(); });
   $("asum").addEventListener("change", (e) => { state.filter.asum = e.target.value; applyFilters(); });
@@ -196,6 +222,7 @@ function syncFilterControls() {
   $("not-first").checked = state.filter.notFirst;
   $("not-last").checked = state.filter.notLast;
   $("asum").value = state.filter.asum;
+  $("f-cond-checks").querySelectorAll("input").forEach((i) => { i.checked = state.filter.conds.includes(i.value); });
 }
 
 function isDefaultFilter() {
@@ -336,6 +363,7 @@ const LIST_COLS = [
   { key: "subdistrict", label: "Asum", cell: (r) => esc(r.subdistrict) },
   { key: "rooms", label: "Toad", num: true, cell: (r) => r.rooms ?? "–" },
   { key: "floor", label: "Korrus", num: true, cell: floorText },
+  { key: "condition", label: "Seisukord", cell: condText },
   { key: "price", label: "Hind €", num: true, cell: (r) => eur.format(r.price) },
   { key: "predicted_price", label: "Mudel €", num: true, cell: (r) => eur.format(r.predicted_price) },
   { key: "residual", label: "Erinevus", num: true, cell: (r) => fmtPct(r.residual) },
