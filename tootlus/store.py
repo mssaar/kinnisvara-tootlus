@@ -126,7 +126,10 @@ class Store:
         updated = 0
         for l in listings:
             cur = self.conn.execute(
-                "UPDATE listings SET floor=?, floors_total=?, build_year=?, condition=? WHERE id=? AND deal_type=?",
+                # Lehelt puuduv väli ei kustuta olemasolevat väärtust
+                """UPDATE listings SET floor=COALESCE(?, floor), floors_total=COALESCE(?, floors_total),
+                       build_year=COALESCE(?, build_year), condition=COALESCE(?, condition)
+                   WHERE id=? AND deal_type=?""",
                 (l.floor, l.floors_total, l.build_year, l.condition, l.id, deal_type),
             )
             updated += cur.rowcount

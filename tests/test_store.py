@@ -131,3 +131,11 @@ def test_backfill_attrs_updates_only_existing():
     assert len(s.runs()) == 1
     obs = s.observations(r)
     assert len(obs) == 1 and obs[0]["price"] == 100000 and obs[0]["rooms"] == 2
+
+
+def test_backfill_keeps_existing_values_when_page_lacks_them():
+    s = Store(":memory:")
+    r = s.start_run()
+    s.save_listings(r, 1, "Harjumaa", [Listing(1, "u", "a", "l", 2, 50.0, 1, 3, 1990, "heas korras", 5)])
+    assert s.backfill_attrs(1, [Listing(1, "u", "a", "l", 2, 50.0, 1, None, None, None, 9)]) == 1
+    assert s.listing_attrs()[(1, 1)] == {"floor": 3, "floors_total": 9, "build_year": 1990, "condition": "heas korras"}
