@@ -71,3 +71,24 @@ def test_import_with_marker_imports_county(tmp_path):
     (tmp_path / "harjumaa.valmis").write_text("", encoding="utf-8")
     s = Store(":memory:")
     assert import_dir(s, tmp_path, progress=lambda m: None) == ["Harjumaa"]
+
+
+def test_backfill_dir_updates_existing_listings(tmp_path):
+    from tootlus.importer import backfill_dir
+    from tootlus.parser import Listing
+    shutil.copy(FIX / "saved_sale.html", tmp_path / "a.html")
+    shutil.copy(FIX / "saved_rent.html", tmp_path / "b.html")
+    (tmp_path / "junk.html").write_text("<html>tühi</html>", encoding="utf-8")
+    s = Store(":memory:")
+    r = s.start_run()
+    s.save_listings(r, 1, "Harjumaa", [Listing(1001, "u", "a", "l", 2, 50.0, 1, None, None, None)])
+    s.save_listings(r, 2, "Harjumaa", [Listing(2001, "u", "a", "l", 2, 50.0, 1, None, None, None)])
+    s.finish_run(r, ["Harjumaa"], True)
+    messages = []
+    assert backfill_dir(s, tmp_path, progress=messages.append) == 2
+    attrs = s.listing_attrs()
+    assert attrs[(1001, 1)]["floors_total"] == 7 and attrs[(1001, 1)]["floor"] == 3
+    assert attrs[(2001, 2)]["floors_total"] == 4
+    assert (1002, 1) not in attrs
+    assert len(s.runs()) == 1
+    assert any("junk.html" in m for m in messages)

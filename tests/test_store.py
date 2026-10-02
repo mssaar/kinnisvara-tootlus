@@ -78,5 +78,56 @@ def test_listing_attrs():
     s.save_listings(r, 1, "Harjumaa", [L(1, 100000)])
     s.save_listings(r, 2, "Harjumaa", [L(1, 500)])
     attrs = s.listing_attrs()
-    assert attrs[(1, 1)] == {"floor": 1, "build_year": 2000, "condition": "uus"}
+    assert attrs[(1, 1)] == {"floor": 1, "floors_total": None, "build_year": 2000, "condition": "uus"}
     assert set(attrs) == {(1, 1), (1, 2)}
+
+
+def test_listing_attrs_include_floors_total():
+    s = Store(":memory:")
+    r = s.start_run()
+    l = Listing(7, "u", "Tn 1, X", "X", 2, 50.0, 100000, 3, 2000, "uus", 9)
+    s.save_listings(r, 1, "Harjumaa", [l])
+    assert s.listing_attrs()[(7, 1)]["floors_total"] == 9
+
+
+OLD_SCHEMA = """
+CREATE TABLE runs (id INTEGER PRIMARY KEY AUTOINCREMENT, started_at TEXT NOT NULL, finished_at TEXT,
+    complete INTEGER NOT NULL DEFAULT 0, counties_ok TEXT NOT NULL DEFAULT '');
+CREATE TABLE listings (id INTEGER NOT NULL, deal_type INTEGER NOT NULL,
+    url TEXT, address TEXT, location TEXT, county TEXT,
+    rooms INTEGER, area_m2 REAL, floor INTEGER, build_year INTEGER, condition TEXT,
+    first_seen_run INTEGER NOT NULL, last_seen_run INTEGER NOT NULL, PRIMARY KEY (id, deal_type));
+INSERT INTO listings VALUES (5, 1, 'u', 'a', 'l', 'Harjumaa', 2, 50.0, 2, 1990, 'uus', 1, 1);
+"""
+
+
+def test_migrates_old_schema(tmp_path):
+    import sqlite3
+    path = tmp_path / "vana.sqlite"
+    conn = sqlite3.connect(path)
+    conn.executescript(OLD_SCHEMA)
+    conn.commit()
+    conn.close()
+    s = Store(str(path))
+    assert s.listing_attrs()[(5, 1)] == {"floor": 2, "floors_total": None, "build_year": 1990, "condition": "uus"}
+    r = s.start_run()
+    s.save_listings(r, 1, "Harjumaa", [Listing(6, "u", "a", "l", 1, 30.0, 1, 4, 2000, None, 5)])
+    assert s.listing_attrs()[(6, 1)]["floors_total"] == 5
+    s.close()
+    Store(str(path)).close()  # teine avamine ei lisa veergu uuesti
+
+
+def test_backfill_attrs_updates_only_existing():
+    s = Store(":memory:")
+    r = s.start_run()
+    s.save_listings(r, 1, "Harjumaa", [Listing(1, "u", "a", "l", 2, 50.0, 100000, None, None, None)])
+    s.finish_run(r, ["Harjumaa"], True)
+    new = [Listing(1, "u2", "b", "m", 3, 60.0, 1, 4, 1985, "heas korras", 9),
+           Listing(2, "u", "a", "l", 2, 50.0, 1, 1, 2000, None, 5)]
+    assert s.backfill_attrs(1, new) == 1
+    assert s.listing_attrs()[(1, 1)] == {"floor": 4, "floors_total": 9, "build_year": 1985, "condition": "heas korras"}
+    assert (2, 1) not in s.listing_attrs()
+    assert s.backfill_attrs(2, new) == 0
+    assert len(s.runs()) == 1
+    obs = s.observations(r)
+    assert len(obs) == 1 and obs[0]["price"] == 100000 and obs[0]["rooms"] == 2

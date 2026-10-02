@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS listings (
     deal_type INTEGER NOT NULL,
     url TEXT, address TEXT, location TEXT, county TEXT,
     rooms INTEGER, area_m2 REAL, floor INTEGER, build_year INTEGER, condition TEXT,
+    floors_total INTEGER,
     first_seen_run INTEGER NOT NULL,
     last_seen_run INTEGER NOT NULL,
     PRIMARY KEY (id, deal_type)
@@ -42,6 +43,14 @@ class Store:
         self.conn = sqlite3.connect(path)
         self.conn.row_factory = sqlite3.Row
         self.conn.executescript(SCHEMA)
+        self._migrate()
+
+    def _migrate(self) -> None:
+        # Vanemas andmebaasis puudub maja korruste arvu veerg
+        columns = {r["name"] for r in self.conn.execute("PRAGMA table_info(listings)")}
+        if "floors_total" not in columns:
+            self.conn.execute("ALTER TABLE listings ADD COLUMN floors_total INTEGER")
+            self.conn.commit()
 
     def start_run(self, now: str | None = None) -> int:
         cur = self.conn.execute("INSERT INTO runs (started_at) VALUES (?)", (now or _now(),))
@@ -52,15 +61,16 @@ class Store:
         for l in listings:
             self.conn.execute(
                 """INSERT INTO listings (id, deal_type, url, address, location, county, rooms, area_m2,
-                       floor, build_year, condition, first_seen_run, last_seen_run)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                       floor, floors_total, build_year, condition, first_seen_run, last_seen_run)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                    ON CONFLICT (id, deal_type) DO UPDATE SET
                        url=excluded.url, address=excluded.address, location=excluded.location,
                        county=excluded.county, rooms=excluded.rooms, area_m2=excluded.area_m2,
-                       floor=excluded.floor, build_year=excluded.build_year,
+                       floor=excluded.floor, floors_total=excluded.floors_total,
+                       build_year=excluded.build_year,
                        condition=excluded.condition, last_seen_run=excluded.last_seen_run""",
                 (l.id, deal_type, l.url, l.address, l.location, county, l.rooms, l.area_m2,
-                 l.floor, l.build_year, l.condition, run_id, run_id),
+                 l.floor, l.floors_total, l.build_year, l.condition, run_id, run_id),
             )
             per_m2 = l.price / l.area_m2 if l.price and l.area_m2 else None
             self.conn.execute(
@@ -102,6 +112,23 @@ class Store:
         self.conn.close()
 
     def listing_attrs(self) -> dict[tuple[int, int], dict]:
-        rows = self.conn.execute("SELECT id, deal_type, floor, build_year, condition FROM listings").fetchall()
-        return {(r["id"], r["deal_type"]): {"floor": r["floor"], "build_year": r["build_year"],
-                                            "condition": r["condition"]} for r in rows}
+        rows = self.conn.execute(
+            "SELECT id, deal_type, floor, floors_total, build_year, condition FROM listings"
+        ).fetchall()
+        return {(r["id"], r["deal_type"]): {"floor": r["floor"], "floors_total": r["floors_total"],
+                                            "build_year": r["build_year"], "condition": r["condition"]}
+                for r in rows}
+
+    def backfill_attrs(self, deal_type: int, listings: list[Listing]) -> int:
+        """Täiendab juba olemasolevate kuulutuste korrust, korruste arvu, ehitusaastat ja seisukorda.
+
+        Uut käivitust ega hindu ei lisata; tagastab uuendatud kuulutuste arvu."""
+        updated = 0
+        for l in listings:
+            cur = self.conn.execute(
+                "UPDATE listings SET floor=?, floors_total=?, build_year=?, condition=? WHERE id=? AND deal_type=?",
+                (l.floor, l.floors_total, l.build_year, l.condition, l.id, deal_type),
+            )
+            updated += cur.rowcount
+        self.conn.commit()
+        return updated

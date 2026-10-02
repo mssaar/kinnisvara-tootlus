@@ -170,6 +170,7 @@ def fit_run(sale: list[dict], rent: list[dict]) -> dict | None:
             "predicted_price": round(predicted_price), "residual": round(row["price"] / predicted_price - 1, 4),
             "rent_estimate": round(rent_est, 2), "yield": round(rent_est * 12 / row["price"], 4),
             "subdistrict": row.get("asum"),
+            "floor": row.get("floor"), "floors_total": row.get("floors_total"),
         })
 
     by_asum: dict[str, list[dict]] = {}

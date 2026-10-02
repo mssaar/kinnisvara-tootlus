@@ -5,6 +5,7 @@
     python run.py --analyze-only  arvuta tulemused olemasolevast andmebaasist
     python run.py --publish       ... ja tee git commit + push
     python run.py --import-dir K  impordi kaustast K brauserist salvestatud kv.ee otsingulehed
+    python run.py --backfill-dir K  täienda kaustast K olemasolevate kuulutuste korruseandmeid (ei arvuta)
     python run.py --serve         ava kohalik leht "Käivita uuesti" nupuga
     python run.py --counties 1,2  ainult valitud maakonnad (kv.ee ID-d)
 """
@@ -24,6 +25,7 @@ def main(argv=None) -> int:
     parser.add_argument("--publish", action="store_true")
     parser.add_argument("--serve", action="store_true")
     parser.add_argument("--import-dir", help="kaust brauserist salvestatud kv.ee otsingulehtedega")
+    parser.add_argument("--backfill-dir", help="kaust salvestatud lehtedega, millest täiendada kuulutuste andmeid")
     parser.add_argument("--curl", action="store_true", help="kogu otse ilma brauserita (võib olla blokeeritud)")
     parser.add_argument("--browser", action="store_true", help=argparse.SUPPRESS)  # vana lipp, nüüd vaikimisi
     parser.add_argument("--port", type=int, default=8000)
@@ -41,6 +43,14 @@ def main(argv=None) -> int:
 
     pipeline.DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     store = Store(str(pipeline.DB_PATH))
+    if args.backfill_dir:
+        from tootlus import importer
+        try:
+            n = importer.backfill_dir(store, Path(args.backfill_dir))
+        finally:
+            store.close()
+        print(f"Täiendatud {n} kuulutust. Tulemuste uuendamiseks: python run.py --analyze-only")
+        return 0
     try:
         ok = None  # None: kogumist ei toimunud (ainult analüüs)
         if args.import_dir:

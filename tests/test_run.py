@@ -59,3 +59,13 @@ def test_analyze_only_does_not_collect(env):
     calls, _ = env
     assert run.main(["--analyze-only"]) == 0
     assert calls == [("analyze",)]
+
+
+def test_backfill_dir_flag(env, monkeypatch, tmp_path):
+    from tootlus import importer
+    calls, _ = env
+    seen = []
+    monkeypatch.setattr(importer, "backfill_dir", lambda store, directory, **kw: seen.append(str(directory)) or 3)
+    assert run.main(["--backfill-dir", str(tmp_path)]) == 0
+    assert seen == [str(tmp_path)]
+    assert calls == []  # ei kogu ega analüüsi

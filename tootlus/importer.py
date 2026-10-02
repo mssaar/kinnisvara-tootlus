@@ -33,7 +33,8 @@ def page_identity(html: str) -> tuple[int, str] | None:
     return DEALS[parts[0]], _COUNTY_BY_SLUG[parts[1]]
 
 
-def import_dir(store, directory: Path, progress=print) -> list[str]:
+def _read_pages(directory: Path, progress) -> dict[tuple[str, int], dict]:
+    """Loeb kausta kv.ee otsingulehed: (maakond, tehingu tüüp) -> {kuulutuse id: Listing}."""
     collected: dict[tuple[str, int], dict] = {}
     files = sorted(p for p in Path(directory).iterdir() if p.is_file() and p.suffix.lower() in (".html", ".htm"))
     for path in files:
@@ -51,7 +52,11 @@ def import_dir(store, directory: Path, progress=print) -> list[str]:
         for listing in listings:
             bucket[listing.id] = listing
         progress(f"{path.name}: {county} {DEAL_LABELS[deal]}, {len(listings)} kuulutust")
+    return collected
 
+
+def import_dir(store, directory: Path, progress=print) -> list[str]:
+    collected = _read_pages(directory, progress)
     counties = sorted({county for county, _ in collected})
     # Brauserikogumise kaustas on lõpetatud maakondadel märgifail; käsitsi salvestatud lehtedel mitte
     markers = {p.name[: -len(MARKER_SUFFIX)] for p in Path(directory).glob(f"*{MARKER_SUFFIX}")}
@@ -78,3 +83,16 @@ def import_dir(store, directory: Path, progress=print) -> list[str]:
     store.finish_run(run_id, ok, complete=len(ok) == len(config.COUNTIES))
     progress(f"Import valmis: {len(ok)} maakonda ({', '.join(ok)})")
     return ok
+
+
+def backfill_dir(store, directory: Path, progress=print) -> int:
+    """Täiendab salvestatud lehtedelt juba andmebaasis olevate kuulutuste atribuute (nt korruste arv).
+
+    Uut käivitust ei looda; tagastab uuendatud kuulutuste arvu."""
+    updated = 0
+    for (county, deal), bucket in sorted(_read_pages(directory, progress).items()):
+        n = store.backfill_attrs(deal, list(bucket.values()))
+        progress(f"{county} {DEAL_LABELS[deal]}: {n}/{len(bucket)} kuulutust täiendatud")
+        updated += n
+    progress(f"Täiendamine valmis: {updated} kuulutust")
+    return updated

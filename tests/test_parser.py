@@ -53,3 +53,18 @@ def test_missing_fields_become_none():
 
 def test_empty_page_returns_empty_list():
     assert parse_page("<html><body></body></html>") == []
+
+
+def test_floors_total_from_excerpt():
+    l = by_id(parse_page(FIXTURE))[3760481]
+    assert l.floor == 1
+    assert l.floors_total == 7
+
+
+def test_floor_without_total():
+    html = ('<article class="default object-type-apartment" data-object-id="5" data-object-url="/x-5.html">'
+            '<p class="object-excerpt"> Korrus 3, heas korras </p></article>')
+    l = parse_page(html)[0]
+    assert l.floor == 3
+    assert l.floors_total is None
+    assert by_id(parse_page(FIXTURE))[111].floors_total is None

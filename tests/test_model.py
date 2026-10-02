@@ -202,3 +202,16 @@ def test_compute_treats_out_of_range_geocode_as_missing():
     res = model.compute(s, g)
     assert res["runs"][0]["n"]["not_geocoded"] == 1
     assert res["runs"][0]["n"]["sale"] == 299
+
+
+def test_compute_listings_carry_floor_and_floors_total():
+    sale = synth(300, 3500, -0.08, seed=19, kind="sale", r_max=6.5, undervalued_id=777)
+    s, g = _store_with(sale, synth(120, 16, -0.05, seed=20, kind="rent", r_max=6.5))
+    s.backfill_attrs(1, [Listing(777, "u", "a", "l", sale[0]["rooms"], 50.0, 1, 4, sale[0]["build_year"],
+                                 sale[0]["condition"], 9)])
+    g.geocode_missing(model.queries(s), progress=lambda m: None)
+    res = model.compute(s, g)
+    assert res["listings"]
+    assert all({"floor", "floors_total"} <= set(l) for l in res["listings"])
+    target = next(l for l in res["listings"] if l["id"] == 777)
+    assert target["floor"] == 4 and target["floors_total"] == 9

@@ -21,6 +21,7 @@ class Listing:
     floor: int | None
     build_year: int | None
     condition: str | None
+    floors_total: int | None = None
 
 
 CONDITIONS = (
@@ -57,15 +58,17 @@ def _price(article) -> float | None:
     return _number(own.split("€")[0])
 
 
-def _excerpt_fields(article) -> tuple[int | None, int | None, str | None]:
+def _excerpt_fields(article) -> tuple[int | None, int | None, int | None, str | None]:
+    """Korrus, maja korruste arv, ehitusaasta ja seisukord ("Korrus 3/7, ..., ehitusaasta 2005, heas korras")."""
     node = article.select_one("p.object-excerpt")
     text = _text(node)
-    floor_m = re.search(r"Korrus (\d+)", text)
+    floor_m = re.search(r"Korrus (\d+)(?:\s*/\s*(\d+))?", text)
     year_m = re.search(r"ehitusaasta (\d{4})", text)
     parts = [p.strip() for p in text.split(",")]
     condition = next((p for p in parts if p in CONDITIONS), None)
     return (
         int(floor_m.group(1)) if floor_m else None,
+        int(floor_m.group(2)) if floor_m and floor_m.group(2) else None,
         int(year_m.group(1)) if year_m else None,
         condition,
     )
@@ -89,7 +92,7 @@ def parse_page(html: str) -> list[Listing]:
     listings = []
     for article in soup.select("article.default.object-type-apartment[data-object-id]"):
         address, location = _address(article)
-        floor, build_year, condition = _excerpt_fields(article)
+        floor, floors_total, build_year, condition = _excerpt_fields(article)
         rooms = _number(_text(article.select_one(".rooms")))
         listings.append(Listing(
             id=int(article["data-object-id"]),
@@ -102,5 +105,6 @@ def parse_page(html: str) -> list[Listing]:
             floor=floor,
             build_year=build_year,
             condition=condition,
+            floors_total=floors_total,
         ))
     return listings
