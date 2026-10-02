@@ -71,10 +71,30 @@ code { font-size: .9em; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 
-/* --- Mudeli leht: diverging skaala (sinine = odavam kui mudel, oranž = kallim); valideeritud dataviz-validaatoriga,
-       CVD ΔE >= 20 (protan), normaalnägemine ΔE >= 26 --- */
-:root { --good: #1f6fb2; --bad: #c2551f; --neutral: #e8e6df; }
-@media (prefers-color-scheme: dark) { :root { --good: #4b97d8; --bad: #d96d3d; --neutral: #3a3e37; } }
+/* --- Mudeli leht: kaardi värviskaalad. JS interpoleerib peatuste vahel pidevalt OKLab-ruumis.
+   --div-1…7: lahknev skaala asumitele (-d … 0 … +d): tumesinine = palju odavam kui mudel, neutraalne = mudeli
+   järgi, tumepunane = palju kallim. --seq-1…4: järjestikune sinine alahinnatud kuulutuste täppidele (-15% … p5).
+   Valideeritud dataviz-validaatoriga (Machado 2009 CVD-simulatsioon): peegelpeatuste paarid
+   CVD ΔE >= 13 ja normaalnägemine ΔE >= 15 mõlemas teemas; harud on ühetoonilised ja heledus muutub monotoonselt.
+   Tumedas teemas on kaardialus tumedaks pööratud ja skaala tugevaim ots on kõige heledam. --- */
+:root {
+  --div-1: #104281; --div-2: #2a78d6; --div-3: #9cc3f0; --div-4: #f0efec;
+  --div-5: #f3b48f; --div-6: #d9622b; --div-7: #8f1d17;
+  --seq-1: #86b6ef; --seq-2: #3987e5; --seq-3: #1c5cab; --seq-4: #0d366b;
+  --map-ring: rgb(27 29 26 / .45);
+  --ratio: #1d7a3e;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --div-1: #a6cbf5; --div-2: #4b97e8; --div-3: #2f5f9c; --div-4: #3a3e37;
+    --div-5: #9a4a27; --div-6: #e57f48; --div-7: #f6b896;
+    --seq-1: #1c5cab; --seq-2: #3987e5; --seq-3: #86b6ef; --seq-4: #cde2fb;
+    --map-ring: rgb(235 234 228 / .5);
+    --ratio: #6fcf8f;
+  }
+  .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(.92) contrast(.88) saturate(.55); }
+  .leaflet-container { background: #1c1f1b; }
+}
 .site-nav { display: flex; gap: 16px; margin-bottom: 8px; font-size: 14px; }
 .site-nav a { color: var(--muted); padding: 6px 0; min-height: 32px; border-bottom: 2px solid transparent; }
 .site-nav a:hover { color: var(--ink); text-decoration: none; }
@@ -85,10 +105,11 @@ code { font-size: .9em; }
 .stat-v { font-weight: 600; font-size: 1.1rem; }
 .stat-v2 { color: var(--muted); }
 #map { height: 460px; border-radius: var(--radius); border: 1px solid var(--line); background: var(--head-bg); }
-.legend { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; font-size: 13px; color: var(--muted); margin: 8px 0 0; }
-.legend .ramp { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; max-width: 100%; }
-.legend .bar { width: 120px; height: 10px; border-radius: 5px; border: 1px solid var(--line);
-  background: linear-gradient(90deg, var(--good), var(--neutral), var(--bad)); }
+.legend { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px 32px; font-size: 13px; color: var(--muted); margin: 10px 0 0; }
+.legend .scale { margin: 0; display: grid; gap: 4px; width: min(300px, 100%); }
+.legend .bar { display: block; height: 10px; border-radius: 5px; border: 1px solid var(--line); }
+.legend .ticks { display: flex; justify-content: space-between; font-size: 12px; font-variant-numeric: tabular-nums; }
+.legend .legend-note { flex-basis: 100%; margin: 0; }
 .charts { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 16px 0; }
 .charts figure { margin: 0; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 10px 6px; box-shadow: var(--shadow); }
 .charts figcaption { font-size: 13px; color: var(--muted); margin-bottom: 4px; }
@@ -106,3 +127,61 @@ main h2 + .table-wrap { margin-top: 8px; }
 main .filters { padding-left: 0; padding-right: 0; }
 .table-wrap.narrow { max-width: 640px; }
 body > .empty { max-width: 1200px; margin: 0 auto; padding: 24px 16px; }
+
+/* --- Mudeli leht: kuulutuste filtrid --- */
+main .model-filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px 28px;
+  align-items: start; padding-top: 4px; padding-bottom: 12px; }
+.range { display: grid; gap: 2px; min-width: 0; }
+.range-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.range-label, .model-filters .f-asum { font-size: 13px; color: var(--muted); }
+.range-out { font-size: 14px; font-weight: 500; color: var(--ink); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.range-track { position: relative; height: 32px; --lo: 0%; --hi: 100%; }
+.range-track::before { content: ""; position: absolute; left: 11px; right: 11px; top: 14px; height: 4px; border-radius: 2px;
+  background: linear-gradient(90deg, var(--line) var(--lo), var(--accent) var(--lo), var(--accent) var(--hi), var(--line) var(--hi)); }
+.range-track input { -webkit-appearance: none; appearance: none; position: absolute; inset: 0; width: 100%; height: 32px;
+  margin: 0; background: none; pointer-events: none; z-index: 1; }
+.range-track input.on-top { z-index: 2; }
+.range-track input:focus-visible { outline: none; }
+.range-track input::-webkit-slider-runnable-track { height: 32px; background: none; }
+.range-track input::-moz-range-track { height: 32px; background: none; }
+.range-track input::-webkit-slider-thumb { -webkit-appearance: none; pointer-events: auto; width: 22px; height: 22px; margin-top: 5px;
+  border-radius: 50%; background: var(--surface); border: 2px solid var(--accent); box-shadow: 0 1px 3px rgb(0 0 0 / .2);
+  cursor: grab; transition: box-shadow .15s; }
+.range-track input::-moz-range-thumb { pointer-events: auto; width: 18px; height: 18px; border-radius: 50%; background: var(--surface);
+  border: 2px solid var(--accent); box-shadow: 0 1px 3px rgb(0 0 0 / .2); cursor: grab; transition: box-shadow .15s; }
+.range-track input:active::-webkit-slider-thumb { cursor: grabbing; }
+.range-track input:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 35%, transparent); }
+.range-track input:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 35%, transparent); }
+.filter-group { display: grid; gap: 2px; }
+.filter-group .checks { display: flex; flex-wrap: wrap; gap: 4px 16px; }
+.model-filters label.check { flex-direction: row; align-items: center; gap: 8px; min-height: 32px; padding: 0; font-size: 14px; color: var(--ink); }
+.filter-group .hint { margin: 2px 0 0; font-size: 12px; }
+.model-filters .f-asum { display: flex; flex-direction: column; gap: 6px; }
+.model-filters .f-asum select { width: 100%; }
+.filter-foot { grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;
+  border-top: 1px solid var(--line); padding-top: 10px; }
+.count { margin: 0; color: var(--muted); font-variant-numeric: tabular-nums; }
+.reset { font: inherit; font-size: 14px; color: var(--ink); background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 7px 14px; min-height: 38px; cursor: pointer; transition: border-color .15s; }
+.reset:hover:not(:disabled) { border-color: var(--muted); }
+.reset:disabled { color: var(--muted); cursor: default; opacity: .6; }
+#kuulutused { scroll-margin-top: 16px; }
+#kuulutused:focus:not(:focus-visible) { outline: none; }
+tr.pick { cursor: pointer; }
+.row-link { all: unset; color: var(--accent); cursor: pointer; }
+tr.pick:hover .row-link, .row-link:hover { text-decoration: underline; text-underline-offset: 3px; }
+.row-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
+
+/* --- Tootluse leht: müük/üür suhe ja selgitus --- */
+.ratio { color: var(--ratio); }
+span.muted { color: var(--muted); }
+th .th-inner { display: inline-flex; align-items: center; gap: 2px; }
+.info-btn { all: unset; display: inline-grid; place-items: center; width: 24px; height: 24px; margin: -4px 0; border-radius: 50%;
+  color: var(--muted); cursor: pointer; }
+.info-btn svg { width: 15px; height: 15px; }
+.info-btn:hover, .info-btn[aria-expanded="true"] { color: var(--ink); }
+.info-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 0; }
+.note-pop { position: fixed; inset: auto; margin: 0; max-width: min(320px, calc(100vw - 32px)); padding: 10px 12px;
+  background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: var(--radius);
+  box-shadow: 0 4px 18px rgb(20 20 10 / .14); font-size: 13px; line-height: 1.45; }
+.run-eta { margin: 4px 0 0; color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }

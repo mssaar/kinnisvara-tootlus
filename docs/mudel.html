@@ -26,17 +26,32 @@
   <main id="content" hidden>
     <section class="stats" id="stats" aria-label="Kauguse mõju"></section>
     <section class="map-wrap"><div id="map" role="region" aria-label="Tallinna kaart"></div>
-      <p class="legend" id="legend"></p></section>
+      <div class="legend" id="legend"></div></section>
     <section class="charts" aria-label="Hind kauguse järgi">
       <figure><figcaption>Müük €/m² (tüüpkorter)</figcaption><svg id="chart-sale" viewBox="0 0 480 220" role="img"></svg></figure>
       <figure><figcaption>Üür €/m² kuus (tüüpkorter)</figcaption><svg id="chart-rent" viewBox="0 0 480 220" role="img"></svg></figure>
     </section>
     <h2>Alahinnatud asumid</h2>
     <div class="table-wrap scroll narrow"><table id="t-sub"><thead></thead><tbody></tbody></table></div>
-    <h2>Alahinnatud kuulutused</h2>
-    <section class="filters"><label>Toad
-      <select id="rooms"><option value="all">Kõik</option><option value="1">1</option><option value="2">2</option>
-        <option value="3">3</option><option value="4+">4+</option></select></label></section>
+    <h2 id="kuulutused" tabindex="-1">Alahinnatud kuulutused</h2>
+    <section class="filters model-filters" aria-label="Kuulutuste filtrid">
+      <div class="range" id="f-rooms"></div>
+      <div class="range" id="f-price"></div>
+      <div class="filter-group">
+        <div class="range" id="f-floor"></div>
+        <div class="checks">
+          <label class="check"><input type="checkbox" id="not-first"> Mitte 1. korrus</label>
+          <label class="check"><input type="checkbox" id="not-last"> Mitte viimane korrus</label>
+        </div>
+        <p class="hint" id="floor-hint"></p>
+      </div>
+      <label class="f-asum">Asum
+        <select id="asum"><option value="">Kõik asumid</option></select></label>
+      <div class="filter-foot">
+        <p class="count" id="count" aria-live="polite"></p>
+        <button type="button" class="reset" id="reset">Lähtesta filtrid</button>
+      </div>
+    </section>
     <div class="table-wrap scroll"><table id="t-list"><thead></thead><tbody></tbody></table></div>
   </main>
   <p class="empty" id="empty" hidden>Mudeli jaoks pole veel piisavalt Tallinna andmeid (vaja vähemalt 50 müügi- ja 30 üürikuulutust koordinaatidega). Käivita <code>python run.py</code> või <code>python run.py --import-dir &lt;kaust&gt;</code>.</p>
