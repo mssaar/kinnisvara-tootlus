@@ -13,7 +13,25 @@ const LEVEL_NAMES = { county: "maakond", county_ex_center: "maakond v.a keskus",
 const pct = new Intl.NumberFormat("et-EE", { style: "percent", minimumFractionDigits: 1, maximumFractionDigits: 1 });
 const eur = new Intl.NumberFormat("et-EE", { maximumFractionDigits: 0 });
 const eur2 = new Intl.NumberFormat("et-EE", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+const ratio1 = new Intl.NumberFormat("et-EE", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 const fmt = (f, v) => (v === null || v === undefined ? "–" : f.format(v));
+
+// "müük / üür (müüki ühe üüri kohta)"; suur suhe = õhuke üüriturg
+function ratioCell(r) {
+  const ratio = r.n_rent ? `<span class="ratio">(${ratio1.format(r.n_sale / r.n_rent)})</span>` : `<span class="muted">(–)</span>`;
+  return `${r.n_sale} / ${r.n_rent} ${ratio}`;
+}
+
+const INFO_ICON = `<svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4">` +
+  `<circle cx="8" cy="8" r="6.6"/><path d="M8 7.2v4" stroke-linecap="round"/><circle cx="8" cy="4.9" r=".55" fill="currentColor" stroke="none"/></svg>`;
+
+function headerCell(c, aria) {
+  const sort = `<button type="button" data-sort="${c.key}">${c.label}</button>`;
+  if (!c.note) return `<th class="${c.num ? "num" : ""}" aria-sort="${aria}">${sort}</th>`;
+  const text = esc($(c.note).textContent);
+  return `<th class="${c.num ? "num" : ""}" aria-sort="${aria}" title="${text}"><span class="th-inner">${sort}` +
+    `<button type="button" class="info-btn" popovertarget="${c.note}" aria-label="Mida tähendab ${c.label}?" aria-expanded="false">${INFO_ICON}</button></span></th>`;
+}
 const $ = (id) => document.getElementById(id);
 
 const COLUMNS = {
@@ -24,7 +42,7 @@ const COLUMNS = {
     { key: "yield_latest", label: "Viimane", num: true, cell: (r) => fmt(pct, r.yield_latest) },
     { key: "sale_m2", label: "Müük €/m²", num: true, cell: (r) => fmt(eur, r.sale_m2) },
     { key: "rent_m2", label: "Üür €/m²", num: true, cell: (r) => fmt(eur2, r.rent_m2) },
-    { key: "n_sale", label: "Müük / üür", num: true, cell: (r) => `${r.n_sale} / ${r.n_rent}` },
+    { key: "n_sale", label: "Müük / üür", num: true, cell: ratioCell, note: "ratio-note" },
     { key: "valid_runs", label: "Ajapunkte", num: true, cell: (r) => r.valid_runs },
   ],
   listings: [
@@ -113,7 +131,7 @@ function render() {
   $("table").querySelector("thead").innerHTML = "<tr>" + cols.map((c) => {
     const active = state.sort.key === c.key;
     const aria = active ? (state.sort.dir > 0 ? "ascending" : "descending") : "none";
-    return `<th class="${c.num ? "num" : ""}" aria-sort="${aria}"><button type="button" data-sort="${c.key}">${c.label}</button></th>`;
+    return headerCell(c, aria);
   }).join("") + "</tr>";
 
   $("table").querySelector("tbody").innerHTML = rows.map((r) =>
@@ -144,6 +162,34 @@ async function loadData() {
   render();
 }
 
+const minutes = (s) => Math.max(1, Math.round(s / 60));
+
+// Ajahinnang serveri viimase eduka käivituse kestuse järgi (puudumisel 20–30 min)
+function etaText(status) {
+  const estimate = status.estimate_s;
+  if (!Number.isFinite(estimate)) return "";
+  if (status.running && status.started_at) {
+    const elapsed = Math.max(0, (Date.now() - new Date(status.started_at).getTime()) / 1000);
+    const left = estimate - elapsed;
+    const done = elapsed < 60 ? "Kulunud alla minuti" : `Kulunud ${minutes(elapsed)} min`;
+    return `${done} · ${left > 30 ? `jäänud ~${minutes(left)} min` : "peaaegu valmis"}`;
+  }
+  if (status.running) return "";
+  return status.last_duration_s == null
+    ? "Hinnanguliselt 20–30 min"
+    : `Hinnanguliselt ~${minutes(estimate)} min (viimane kord ${minutes(status.last_duration_s)} min)`;
+}
+
+function placeNote(pop) {
+  const btn = document.querySelector(`[popovertarget="${pop.id}"]`);
+  if (!btn) return;
+  const r = btn.getBoundingClientRect(), w = pop.offsetWidth, h = pop.offsetHeight;
+  const left = Math.min(Math.max(16, r.right - w), window.innerWidth - w - 16);
+  const below = r.bottom + 6 + h <= window.innerHeight - 8;
+  pop.style.left = `${left}px`;
+  pop.style.top = `${below ? r.bottom + 6 : Math.max(8, r.top - h - 6)}px`;
+}
+
 async function pollStatus() {
   let status;
   try {
@@ -154,12 +200,25 @@ async function pollStatus() {
   $("run").hidden = false;
   $("run-btn").disabled = status.running;
   $("run-btn").textContent = status.running ? "Kogun…" : "Käivita uuesti";
+  $("run-eta").textContent = etaText(status);
   const last = status.messages[status.messages.length - 1];
   const done = last ? `Valmis. ${last}` : "Valmis.";
   $("run-log").textContent = status.error ? `Viga: ${status.error}` : (status.running ? last || "Alustan…" : (status.finished_at ? done : ""));
   if (status.running) setTimeout(pollStatus, 1500);
   else if (state.wasRunning) loadData();
   state.wasRunning = status.running;
+}
+
+function bindNote() {
+  const pop = $("ratio-note");
+  pop.addEventListener("toggle", (e) => {
+    document.querySelectorAll(`[popovertarget="${pop.id}"]`).forEach((b) => b.setAttribute("aria-expanded", String(e.newState === "open")));
+    if (e.newState === "open") placeNote(pop);
+  });
+  // Fikseeritud selgitus ei tohi kerimisel nupust lahku triivida
+  const close = () => { if (pop.matches(":popover-open")) pop.hidePopover(); };
+  window.addEventListener("scroll", close, { passive: true, capture: true });
+  window.addEventListener("resize", close);
 }
 
 function bind() {
@@ -192,5 +251,6 @@ function bind() {
 }
 
 bind();
+if (HTMLElement.prototype.hasOwnProperty("popover")) bindNote();
 loadData();
 pollStatus();

@@ -22,6 +22,7 @@
     </div>
     <div class="run" id="run" hidden>
       <button id="run-btn" type="button">Käivita uuesti</button>
+      <p class="run-eta" id="run-eta"></p>
       <p class="run-log" id="run-log" aria-live="polite"></p>
     </div>
   </header>
@@ -60,6 +61,8 @@
     <div class="table-wrap" tabindex="0" role="region" aria-label="Tulemuste tabel"><table id="table"><thead></thead><tbody></tbody></table></div>
     <p class="empty" id="empty" hidden>Andmeid pole. Käivita <code>python run.py</code>.</p>
   </main>
+
+  <div class="note-pop" id="ratio-note" popover role="note">Müügi- ja üürikuulutuste arv viimases ajapunktis. Sulgudes müügikuulutusi ühe üürikuulutuse kohta — suur arv tähendab, et üüriturg on õhuke ja üürihinnang ebakindlam.</div>
 
   <footer class="foot">
     Bruto tootlus = üüri €/m² mediaan × 12 / müügi €/m² mediaan, arvutatud iga käivituse andmetest eraldi;
