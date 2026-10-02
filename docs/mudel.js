@@ -68,9 +68,9 @@ function quantile(values, q) {
 // kuulutuste täpid järjestikune -15% ... hälvete 5. protsentiil
 function computeScales() {
   const d = state.data;
-  const p95 = quantile(d.subdistricts.map((s) => Math.abs(s.residual_median)), 0.95) ?? 0;
+  const p95 = quantile(d.subdistricts.map((s) => Math.abs(s.residual_median)).filter(Number.isFinite), 0.95) ?? 0;
   const div = Math.max(0.05, Math.ceil(Math.round(p95 * 1e4) / 100) / 100);
-  let p5 = quantile(d.listings.map((l) => l.residual), 0.05) ?? UNDERVALUED - 0.1;
+  let p5 = quantile(d.listings.map((l) => l.residual).filter(Number.isFinite), 0.05) ?? UNDERVALUED - 0.1;
   if (p5 > UNDERVALUED - 0.01) p5 = UNDERVALUED - 0.01;
   const dv = ramp([1, 2, 3, 4, 5, 6, 7].map((i) => css(`--div-${i}`)));
   const sq = ramp([1, 2, 3, 4].map((i) => css(`--seq-${i}`)));
@@ -91,9 +91,11 @@ function computeBounds() {
   const prices = L.map((l) => l.price).filter(Number.isFinite);
   const floors = L.map((l) => l.floor).filter(Number.isFinite);
   const names = new Set([...L.map((l) => l.subdistrict), ...state.data.subdistricts.map((s) => s.name)].filter(Boolean));
+  const lo = prices.length ? Math.floor(Math.min(...prices) / PRICE_STEP) * PRICE_STEP : 0;
+  const hi = prices.length ? Math.ceil(Math.max(...prices) / PRICE_STEP) * PRICE_STEP : PRICE_STEP;
   return {
     rooms: [1, ROOMS_MAX],
-    price: [Math.floor(Math.min(...prices) / PRICE_STEP) * PRICE_STEP, Math.ceil(Math.max(...prices) / PRICE_STEP) * PRICE_STEP],
+    price: [lo, Math.max(hi, lo + PRICE_STEP)],
     floor: [Math.min(1, ...floors), Math.max(1, ...floors)],
     asums: [...names].sort((a, b) => a.localeCompare(b, "et-EE")),
   };
@@ -117,7 +119,7 @@ function passes(l) {
   return true;
 }
 
-const filtered = () => state.data.listings.filter(passes);
+const filtered = () => (state.filter ? state.data.listings.filter(passes) : []);
 
 // Kahe käepidemega vahemikuliugur: kaks kattuvat <input type=range>, mõlemal oma silt ja klaviatuur
 function makeRange(el, { key, label, unit, step, fmt, text }) {
@@ -182,7 +184,10 @@ function initFilters() {
   $("not-first").addEventListener("change", (e) => { state.filter.notFirst = e.target.checked; applyFilters(); });
   $("not-last").addEventListener("change", (e) => { state.filter.notLast = e.target.checked; applyFilters(); });
   $("asum").addEventListener("change", (e) => { state.filter.asum = e.target.value; applyFilters(); });
-  $("reset").addEventListener("click", () => { state.filter = defaultFilter(); syncFilterControls(); applyFilters(); });
+  $("reset").addEventListener("click", () => {
+    state.filter = defaultFilter(); syncFilterControls(); applyFilters();
+    $("f-rooms-a").focus();
+  });
   syncFilterControls();
 }
 
@@ -194,7 +199,7 @@ function syncFilterControls() {
 }
 
 function isDefaultFilter() {
-  return JSON.stringify(state.filter) === JSON.stringify(defaultFilter());
+  return !state.filter || JSON.stringify(state.filter) === JSON.stringify(defaultFilter());
 }
 
 function applyFilters() {
@@ -203,6 +208,7 @@ function applyFilters() {
 }
 
 function selectAsum(name) {
+  if (!state.filter) return; // kuulutusi pole, filtrit pole
   state.filter.asum = state.bounds.asums.includes(name) ? name : "";
   syncFilterControls();
   applyFilters();
@@ -274,11 +280,11 @@ function renderLegend() {
       <span class="bar" style="background:${gradient(s.divRamp)}" aria-hidden="true"></span>
       <span class="ticks"><span>${pctTick.format(-dv)} odavam</span><span>0</span><span>kallim ${pctTick.format(dv)}</span></span>
     </figure>
-    <figure class="scale">
+    ${state.data.listings.length ? `<figure class="scale">
       <figcaption>Täpp: alahinnatud kuulutus, hind mudeli suhtes</figcaption>
       <span class="bar" style="background:${gradient(s.seqRamp)}" aria-hidden="true"></span>
       <span class="ticks"><span>${pctTick.format(UNDERVALUED)}</span><span>${pctTick.format(s.low)} või vähem</span></span>
-    </figure>
+    </figure>` : ""}
     <p class="legend-note">Paks ring = andmetest leitud keskpunkt · katkendlik ring = Vabaduse väljak ·
       klõpsa asumil, et näha selle kuulutusi</p>`;
 }
@@ -361,11 +367,14 @@ function renderSubTable() {
     (r) => ` class="pick" data-asum="${esc(r.name)}"`);
 }
 
+let countT;
 function renderListTable() {
   const list = filtered();
   renderTable("t-list", LIST_COLS, sortRows([...list], state.sortList), state.sortList,
     (key) => { state.sortList = toggle(state.sortList, key); renderListTable(); });
-  $("count").textContent = `${list.length} / ${state.data.listings.length} kuulutust`;
+  clearTimeout(countT);
+  const text = `${list.length} / ${state.data.listings.length} kuulutust`;
+  countT = setTimeout(() => { $("count").textContent = text; }, $("count").textContent ? 400 : 0);
   $("reset").disabled = isDefaultFilter();
 }
 
@@ -385,9 +394,15 @@ async function load() {
   state.scales = computeScales();
   renderStats();
   renderCharts();
-  initFilters();
   renderSubTable();
-  renderListTable();
+  if (data.listings.length) {
+    initFilters();
+    renderListTable();
+  } else {
+    $("list-filters").hidden = true;
+    $("list-wrap").hidden = true;
+    $("list-empty").hidden = false;
+  }
   renderLegend();
   try {
     if (typeof L === "undefined") throw new Error("Leaflet puudub");

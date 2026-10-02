@@ -34,7 +34,7 @@
     <h2>Alahinnatud asumid</h2>
     <div class="table-wrap scroll narrow"><table id="t-sub"><thead></thead><tbody></tbody></table></div>
     <h2 id="kuulutused" tabindex="-1">Alahinnatud kuulutused</h2>
-    <section class="filters model-filters" aria-label="Kuulutuste filtrid">
+    <section class="filters model-filters" id="list-filters" aria-label="Kuulutuste filtrid">
       <div class="range" id="f-rooms"></div>
       <div class="range" id="f-price"></div>
       <div class="filter-group">
@@ -52,7 +52,8 @@
         <button type="button" class="reset" id="reset">Lähtesta filtrid</button>
       </div>
     </section>
-    <div class="table-wrap scroll"><table id="t-list"><thead></thead><tbody></tbody></table></div>
+    <div class="table-wrap scroll" id="list-wrap"><table id="t-list"><thead></thead><tbody></tbody></table></div>
+    <p class="empty" id="list-empty" hidden>Selles ajapunktis pole ühtegi kuulutust, mis oleks vähemalt 15% alla mudeli hinnangu.</p>
   </main>
   <p class="empty" id="empty" hidden>Mudeli jaoks pole veel piisavalt Tallinna andmeid (vaja vähemalt 50 müügi- ja 30 üürikuulutust koordinaatidega). Käivita <code>python run.py</code> või <code>python run.py --import-dir &lt;kaust&gt;</code>.</p>
 

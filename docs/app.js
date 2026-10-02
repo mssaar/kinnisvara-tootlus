@@ -177,7 +177,7 @@ function etaText(status) {
   if (status.running) return "";
   return status.last_duration_s == null
     ? "Hinnanguliselt 20–30 min"
-    : `Hinnanguliselt ~${minutes(estimate)} min (viimane kord ${minutes(status.last_duration_s)} min)`;
+    : `Hinnanguliselt ~${minutes(estimate)} min (viimase käivituse põhjal)`;
 }
 
 function placeNote(pop) {
