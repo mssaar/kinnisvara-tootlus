@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import threading
+import time
 import webbrowser
 from datetime import datetime
 from functools import partial
@@ -13,19 +14,36 @@ from . import pipeline
 from .store import Store
 
 MAX_MESSAGES = 50
+DEFAULT_ESTIMATE_S = 1500  # 25 min, kui varasemat käivitust pole
+HISTORY_PATH = pipeline.ROOT / "data" / "viimane_kaivitus.json"
 
 
 class NothingCollected(Exception):
     """Kogumine/import ei andnud ühtegi maakonda; teade näidatakse kasutajale muutmata kujul."""
 
 
+def _read_duration(path: Path | None) -> float | None:
+    if path is None:
+        return None
+    try:
+        value = json.loads(Path(path).read_text(encoding="utf-8")).get("duration_s")
+    except (OSError, ValueError, AttributeError):
+        return None
+    return float(value) if isinstance(value, (int, float)) else None
+
+
 class RunState:
-    def __init__(self):
+    def __init__(self, history_path: Path | None = None):
+        """history_path: fail, kuhu salvestatakse viimase eduka käivituse kestus (None = ei salvestata)."""
         self._lock = threading.Lock()
         self.running = False
         self.messages: list[str] = []
         self.error: str | None = None
         self.finished_at: str | None = None
+        self.started_at: str | None = None
+        self._started_mono: float | None = None
+        self.history_path = Path(history_path) if history_path else None
+        self.last_duration_s = _read_duration(self.history_path)
 
     def _progress(self, message: str) -> None:
         with self._lock:
@@ -36,6 +54,8 @@ class RunState:
             if self.running:
                 return False
             self.running, self.messages, self.error, self.finished_at = True, [], None, None
+            self.started_at = datetime.now().isoformat(timespec="seconds")
+            self._started_mono = time.monotonic()
         threading.Thread(target=self._work, args=(runner,), daemon=True).start()
         return True
 
@@ -47,14 +67,33 @@ class RunState:
             error = str(exc)
         except Exception as exc:  # noqa: BLE001 - kõik vead tuleb kasutajale näidata
             error = f"{type(exc).__name__}: {exc}"
+        duration = round(time.monotonic() - self._started_mono, 1)
+        finished_at = datetime.now().isoformat(timespec="seconds")
+        if error is None:
+            self._save_duration(duration, finished_at)
         with self._lock:
             self.running, self.error = False, error
-            self.finished_at = datetime.now().isoformat(timespec="seconds")
+            self.finished_at, self.started_at = finished_at, None
+            if error is None:
+                self.last_duration_s = duration
+
+    def _save_duration(self, duration: float, finished_at: str) -> None:
+        if self.history_path is None:
+            return
+        try:
+            self.history_path.parent.mkdir(parents=True, exist_ok=True)
+            self.history_path.write_text(json.dumps({"duration_s": duration, "finished_at": finished_at}),
+                                         encoding="utf-8")
+        except OSError:
+            pass  # ajahinnang pole kriitiline
 
     def snapshot(self) -> dict:
         with self._lock:
+            last = self.last_duration_s
             return {"running": self.running, "messages": list(self.messages),
-                    "error": self.error, "finished_at": self.finished_at}
+                    "error": self.error, "finished_at": self.finished_at,
+                    "started_at": self.started_at, "last_duration_s": last,
+                    "estimate_s": last if last is not None else DEFAULT_ESTIMATE_S}
 
 
 def _handler(state: RunState, runner):
@@ -126,7 +165,7 @@ def make_runner(counties: dict, curl: bool = False):
 
 
 def serve(port: int, counties: dict, curl: bool = False) -> None:
-    server = make_server(port, pipeline.ROOT / "docs", RunState(), make_runner(counties, curl))
+    server = make_server(port, pipeline.ROOT / "docs", RunState(HISTORY_PATH), make_runner(counties, curl))
     url = f"http://127.0.0.1:{server.server_address[1]}/"
     print(f"Leht avatud: {url}  (Ctrl+C lõpetab)")
     webbrowser.open(url)

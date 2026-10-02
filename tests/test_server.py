@@ -135,3 +135,58 @@ def test_runner_curl_mode_analyzes_on_success(monkeypatch, tmp_path):
     calls = _patch_runner_env(monkeypatch, tmp_path, ["Harjumaa"])
     make_runner({1: "Harjumaa"}, curl=True)(lambda m: None)
     assert calls == ["curl", "analyze"]
+
+
+def test_status_estimate_without_history(tmp_path):
+    state = RunState(history_path=tmp_path / "viimane_kaivitus.json")
+    snap = state.snapshot()
+    assert snap["last_duration_s"] is None
+    assert snap["started_at"] is None
+    assert snap["estimate_s"] == 1500
+
+
+def test_completed_run_records_duration(tmp_path):
+    path = tmp_path / "viimane_kaivitus.json"
+    state = RunState(history_path=path)
+    gate = threading.Event()
+    assert state.start(lambda progress: gate.wait(5) and time.sleep(0.05))
+    assert wait_until(lambda: state.snapshot()["running"])
+    running = state.snapshot()
+    assert running["started_at"] and running["estimate_s"] == 1500
+    gate.set()
+    assert wait_until(lambda: not state.snapshot()["running"])
+    snap = state.snapshot()
+    assert snap["started_at"] is None
+    assert snap["last_duration_s"] >= 0.05
+    assert snap["estimate_s"] == snap["last_duration_s"]
+    saved = json.loads(path.read_text(encoding="utf-8"))
+    assert saved["duration_s"] == snap["last_duration_s"] and saved["finished_at"]
+    assert RunState(history_path=path).snapshot()["last_duration_s"] == snap["last_duration_s"]
+
+
+def test_failed_run_keeps_previous_duration(tmp_path):
+    path = tmp_path / "viimane_kaivitus.json"
+    path.write_text(json.dumps({"duration_s": 1200.0, "finished_at": "2026-10-01T10:00:00"}), encoding="utf-8")
+    state = RunState(history_path=path)
+    assert state.snapshot()["estimate_s"] == 1200.0
+
+    def boom(progress):
+        raise RuntimeError("katki")
+
+    assert state.start(boom)
+    assert wait_until(lambda: not state.snapshot()["running"])
+    assert state.snapshot()["last_duration_s"] == 1200.0
+    assert json.loads(path.read_text(encoding="utf-8"))["duration_s"] == 1200.0
+
+
+def test_corrupt_history_is_ignored(tmp_path):
+    path = tmp_path / "viimane_kaivitus.json"
+    path.write_text("{katki", encoding="utf-8")
+    assert RunState(history_path=path).snapshot()["last_duration_s"] is None
+
+
+def test_status_endpoint_has_time_fields(server):
+    base, _, _ = server
+    status = get_json(base + "/api/status")
+    assert {"last_duration_s", "started_at", "estimate_s"} <= set(status)
+    assert status["estimate_s"] == 1500

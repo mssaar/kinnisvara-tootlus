@@ -3,3 +3,4 @@ __pycache__/
 *.pyc
 .venv/
 data/lehed/
+data/viimane_kaivitus.json
