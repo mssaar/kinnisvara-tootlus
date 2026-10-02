@@ -16,6 +16,10 @@ const condText = (r) => (r.condition ? esc(r.condition) : "–");
 function renderCondChecks(box, listings, checked) {
   const counts = {};
   listings.forEach((l) => { const id = condGroupId(l.condition); counts[id] = (counts[id] || 0) + 1; });
+  if (box.children.length) { // olemasolevaid ruute ei ehitata uuesti, et fookus säiliks
+    COND_GROUPS.forEach((g) => { box.querySelector(`input[value="${g.id}"]`).parentElement.querySelector(".n").textContent = `(${counts[g.id] || 0})`; });
+    return;
+  }
   box.innerHTML = COND_GROUPS.map((g) =>
     `<label class="check"><input type="checkbox" value="${g.id}"${checked.includes(g.id) ? " checked" : ""}> ${esc(g.label)} <span class="n">(${counts[g.id] || 0})</span></label>`
   ).join("");
@@ -95,18 +99,19 @@ function regionRows() {
     .map((r) => ({ ...r, parent: r.path.slice(0, -1).join(" › ") }));
 }
 
-function listingRows() {
+// withCond=false: tabeli baashulk ilma seisukorra filtrita (märkeruutude arvude jaoks)
+function listingRows(withCond = true) {
   return state.data.listings
     .filter((r) => state.rooms === "all" || roomGroup(r.rooms) === state.rooms)
-    .filter((r) => state.conds.includes(condGroupId(r.condition)))
+    .filter((r) => !withCond || state.conds.includes(condGroupId(r.condition)))
     .filter((r) => state.showCountyRent || !COUNTY_RENT_LEVELS.has(r.rent_level))
     .map((r) => ({ ...r, parent: r.path.join(" › ") }));
 }
 
 function roomGroup(n) { return n >= 4 ? "4+" : String(n); }
 
-function rowsForView() {
-  let rows = state.view === "regions" ? regionRows() : listingRows();
+function rowsForView(withCond = true) {
+  let rows = state.view === "regions" ? regionRows() : listingRows(withCond);
   if (state.parent) rows = rows.filter((r) => r.parent === state.parent || r.parent.startsWith(state.parent + " › "));
   if (state.query) {
     const q = state.query.toLocaleLowerCase("et");
@@ -151,6 +156,7 @@ function render() {
   $("show-thin").parentElement.hidden = state.view !== "regions";
   $("show-county-rent").parentElement.hidden = state.view !== "listings";
   $("f-cond").hidden = state.view !== "listings";
+  if (state.view === "listings") renderCondChecks($("f-cond-checks"), rowsForView(false), state.conds);
   renderParent();
 
   $("table").querySelector("thead").innerHTML = "<tr>" + cols.map((c) => {
@@ -184,7 +190,6 @@ async function loadData() {
   const res = await fetch("data/results.json", { cache: "no-store" });
   state.data = res.ok ? await res.json() : { runs: [], regions: [], listings: [] };
   renderMeta();
-  renderCondChecks($("f-cond-checks"), state.data.listings, state.conds);
   render();
 }
 

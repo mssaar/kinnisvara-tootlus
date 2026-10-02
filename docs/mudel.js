@@ -102,6 +102,10 @@ const condText = (r) => (r.condition ? esc(r.condition) : "–");
 function renderCondChecks(box, listings, checked) {
   const counts = {};
   listings.forEach((l) => { const id = condGroupId(l.condition); counts[id] = (counts[id] || 0) + 1; });
+  if (box.children.length) { // olemasolevaid ruute ei ehitata uuesti, et fookus säiliks
+    COND_GROUPS.forEach((g) => { box.querySelector(`input[value="${g.id}"]`).parentElement.querySelector(".n").textContent = `(${counts[g.id] || 0})`; });
+    return;
+  }
   box.innerHTML = COND_GROUPS.map((g) =>
     `<label class="check"><input type="checkbox" value="${g.id}"${checked.includes(g.id) ? " checked" : ""}> ${esc(g.label)} <span class="n">(${counts[g.id] || 0})</span></label>`
   ).join("");
